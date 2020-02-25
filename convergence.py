@@ -10,7 +10,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 
-import mls
+from PoissonMlsSim import PoissonMlsSim
 from timeit import default_timer
 
 import warnings
@@ -47,12 +47,12 @@ for iN, N in enumerate(N_array):
     print('N =', N)
     
     # allocate arrays and compute boundary values
-    mlsSim = mls.MlsSim(N, g, Nquad, support, form, method, quadrature)
+    mlsSim = PoissonMlsSim(N, g, Nquad, support, form, method, quadrature)
     
     # Assemble the stiffness matrix and solve for the approximate solution
     tolerance = 1e-10
     mlsSim.assembleStiffnessMatrix()
-    mlsSim.solve(tol=tolerance, atol=tolerance, preconditioner=precon)
+    mlsSim.solve(preconditioner=precon, tol=tolerance, atol=tolerance)
     
     # compute the analytic solution and error norms
     u_exact = g(mlsSim.nodes)

@@ -451,7 +451,7 @@ class Gaussian(WeightFunction):
         return w, dwdr, d2wdr2
 
 
-class MlsSim(object):
+class MlsSim(metaclass=ABCMeta):
     """Class for meshless moving least squares (MLS) method.
     
     Parameters
@@ -617,24 +617,6 @@ class MlsSim(object):
         else:
             print(f"Error: unkown spline form '{form}'. "
                   f"Must be one of 'cubic', 'quartic', or 'gaussian'.")
-        
-    def defineSupport(self, point):
-        """Find nodes within support of a given evaluation point.
-
-        Parameters
-        ----------
-        point : numpy.array([x,y], dtype='float64')
-            Coordinates of given evaluation point.
-
-        Returns
-        -------
-        indices : numpy.array([...], dtype='uint32')
-            Indices of nodes within support of given evaluation point.
-            
-        """
-        distances = la.norm(point - self.nodes, axis=1)
-        indices = np.flatnonzero(distances < self.support).astype('uint32')
-        return indices
     
     def assembleGalerkinStiffnessMatrix(self):
         """Assemble the Galerkin system stiffness matrix K in CSR format.
@@ -719,15 +701,18 @@ class MlsSim(object):
         self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                                 shape=(self.nNodes, self.nNodes) )
     
-    def solve(self, preconditioner=None, x0=None, tol=1e-05, maxiter=1000,
-              M=None, callback=None, inner_m=30, outer_k=3, outer_v=None,
-              store_outer_Av=True, prepend_outer_v=False, atol=1e-05):
-        """Solve for the approximate solution using an iterative solver.
+    def precondition(self, preconditioner=None, M=None):
+        """Generate and/or store the preconditioning matrix M.
 
         Parameters
         ----------
-        preconditioner : {string, None}
-            
+        preconditioner : {string, None}, optional
+            Which preconditioning method to use.
+            Must be one of 'jacobi', 'ilu', or None. The default is None.
+        M : {scipy.sparse.linalg.LinearOperator, None}, optional
+            Used to directly specifiy the linear operator to be used.
+            Only used if preconditioner==None, otherwise ignored.
+            The default is None.
 
         Returns
         -------
@@ -750,21 +735,28 @@ class MlsSim(object):
                 print("Error: 'jacobi' preconditioner not compatible with "
                       "'galerkin' assembly method. Use 'ilu' or None instead."
                       " Defaulting to None.")
-        # uTmp, self.info = sp_la.bicgstab(self.K, self.b, x0, tol, maxiter,
-        #                                  self.M, callback, atol)
-        uTmp, self.info = sp_la.lgmres(self.K, self.b,
-            x0, tol, maxiter, self.M, callback, inner_m, outer_k, outer_v,
-            store_outer_Av, prepend_outer_v, atol)
-        uTmp = sp_la.spsolve(self.K, self.b) # direct solver for testing
-        if (self.info != 0):
-            print(f'solution failed with error code: {self.info}')
-        # reconstruct final u vector from shape functions
-        self.u = np.empty(self.nNodes, dtype='float64')
-        for iN, node in enumerate(self.nodes):
-            indices = self.defineSupport(node)
-            phi = shapeFunctions0(node, self.nodes[indices],
-                                  self.weightFunction, self.support)
-            self.u[iN] = uTmp[indices]@phi
+    
+    @abstractmethod
+    def defineSupport(self, point):
+        """Find nodes within support of a given evaluation point.
+
+        Parameters
+        ----------
+        point : numpy.array([x,y], dtype='float64')
+            Coordinates of given evaluation point.
+
+        Returns
+        -------
+        indices : numpy.array([...], dtype='uint32')
+            Indices of nodes within support of given evaluation point.
+            
+        """
+        pass
+    
+    @abstractmethod
+    def solve(self, *args, **kwargs):
+        """Solve for the approximate solution."""
+        pass
     
     def cond(self, ord=2, preconditioned=True):
         """Computes the condition number of the stiffness matrix K.
