@@ -170,6 +170,10 @@ def shapeFunctions2(point, nodes, weightFunction, support):
 
 
 class WeightFunction(metaclass=ABCMeta):
+    @property
+    @abstractmethod
+    def form(self): pass
+
     @abstractmethod
     def w(self, r): pass
     
@@ -180,6 +184,10 @@ class WeightFunction(metaclass=ABCMeta):
     def dw2(self, r): pass
 
 class CubicSpline(WeightFunction):
+    @property
+    def form(self):
+        return 'cubic'
+    
     def w(self, r):
         """Compute cubic spline function value.
 
@@ -283,6 +291,10 @@ class CubicSpline(WeightFunction):
         return w, dwdr, d2wdr2
 
 class QuarticSpline(WeightFunction):
+    @property
+    def form(self):
+        return 'quartic'
+
     def w(self, r):
         """Compute quartic spline function values.
 
@@ -368,6 +380,10 @@ class QuarticSpline(WeightFunction):
         return w, dwdr, d2wdr2
 
 class Gaussian(WeightFunction):
+    @property
+    def form(self):
+        return 'gaussian'
+
     def w(self, r):
         """Compute Gaussian function values.
 
@@ -487,18 +503,19 @@ class MlsSim(metaclass=ABCMeta):
         The default is 'gaussian'.
     """
     
-    def __init__(self, N, g, Nquad=2, support=-1, form='cubic',
+    def __init__(self, N, Nquad=2, support=-1, form='cubic',
                  method='galerkin', quadrature='gaussian'):
         self.N = N
         self.nCells = N*N
         self.nNodes = (N+1)*(N+1)
         self.Nquad = Nquad
+        self.selectWeightFunction(form)
         if support > 0:
             self.support = support/N
         else: # if support is negative, set to default grid spacing
-            if form.lower() == 'quartic':
+            if self.form == 'quartic':
                 self.support = 1.8/N
-            elif form.lower() == 'cubic':
+            elif self.form == 'cubic':
                 self.support = 1.9/N
             else: # if form is unkown
                 self.support = 1.5/N
@@ -506,47 +523,11 @@ class MlsSim(metaclass=ABCMeta):
                        .T.reshape(-1,2) ) / N
         self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
         self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
-        self.boundaryValues = g(self.nodes[self.isBoundaryNode]) \
-                               .round(decimals=14)
-        self.g = g
-        self.selectWeightFunction(form)
-        self.selectMethod(method, quadrature)
     
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.N},{self.g}," \
+        return f"{self.__class__.__name__}({self.N}," \
                f"{self.Nquad},{self.support*self.N},'{self.form}'," \
                f"'{self.method}','{self.quadrature}')"
-    
-    def selectMethod(self, method, quadrature):
-        """Register the 'self.assembleStiffnesMatrix' method.
-        
-        Parameters
-        ----------
-        method : string
-            Method used for assembling the stiffness matrix.
-            Must be either 'galerkin' or 'collocation'.
-        quadrature : string
-            Distribution of quadrature points in each cell.
-            Must be either 'uniform' or 'gaussian'.
-
-        Returns
-        -------
-        None.
-
-        """
-        self.method = method.lower()
-        if method.lower() == 'galerkin':
-            self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrix
-            self.generateQuadraturePoints(quadrature)
-            self.b = np.concatenate((np.zeros(self.nNodes,dtype='float64'),
-                                     self.boundaryValues))
-        elif method.lower() == 'collocation':
-            self.assembleStiffnessMatrix = self.assembleCollocationStiffnessMatrix
-            self.b = np.zeros(self.nNodes,dtype='float64')
-            self.b[self.isBoundaryNode] = self.boundaryValues
-        else:
-            print(f"Error: unkown assembly method '{method}'. "
-                  f"Must be one of 'galerkin' or 'collocation'.")
     
     def generateQuadraturePoints(self, quadrature):
         """Compute array of quadrature points for Galerkin integration.
@@ -607,12 +588,16 @@ class MlsSim(metaclass=ABCMeta):
         None.
 
         """
+        if isinstance(form, WeightFunction):
+            self.weightFunction = form
+            self.form = form.form
+            return
         self.form = form.lower()
-        if form.lower() == 'cubic':
+        if self.form == 'cubic':
             self.weightFunction = CubicSpline()
-        elif form.lower() == 'quartic':
+        elif self.form == 'quartic':
             self.weightFunction = QuarticSpline()
-        elif form.lower() == 'gaussian':
+        elif self.form == 'gaussian':
             self.weightFunction = Gaussian()
         else:
             print(f"Error: unkown spline form '{form}'. "
@@ -648,25 +633,7 @@ class MlsSim(metaclass=ABCMeta):
         self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
                                 shape=(self.nNodes, self.nNodes) )
         self.K *= self.quadWeight
-        # apply Dirichlet boundary conditions using Lagrange multiplier method
-        data.fill(0.0)
-        row_ind.fill(0)
-        col_ind.fill(0)
-        index = 0
-        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
-            indices = self.defineSupport(node)
-            nEntries = len(indices)
-            phi = shapeFunctions0(node, self.nodes[indices],
-                                  self.weightFunction, self.support)
-            data[index:index+nEntries] = -1.0*phi
-            row_ind[index:index+nEntries] = indices
-            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
-            index += nEntries
-        inds = np.flatnonzero(data.round(decimals=14,out=data))
-        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
-                           shape=(self.nNodes, self.nBoundaryNodes) )
-        G *= -1.0
-        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
+        self.applyBCs()
     
     def assembleCollocationStiffnessMatrix(self):
         """Assemble the collocation system stiffness matrix K in CSR format.
@@ -700,6 +667,31 @@ class MlsSim(metaclass=ABCMeta):
         indptr[-1] = index
         self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                                 shape=(self.nNodes, self.nNodes) )
+    
+    def applyLagrangeMultiplierDirichletBCs(self):
+        # apply Dirichlet boundary conditions using Lagrange multiplier method
+        # pre-allocate arrays for additional stiffness matrix triplets
+        # these are the maximum possibly required sizes; not all will be used
+        nMaxEntriesPerNode = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
+        nMaxEntries = self.nBoundaryNodes * nMaxEntriesPerNode
+        data = np.zeros(nMaxEntries, dtype='float64')
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        index = 0
+        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+            indices = self.defineSupport(node)
+            nEntries = len(indices)
+            phi = shapeFunctions0(node, self.nodes[indices],
+                                  self.weightFunction, self.support)
+            data[index:index+nEntries] = -1.0*phi
+            row_ind[index:index+nEntries] = indices
+            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
+            index += nEntries
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                           shape=(self.nNodes, self.nBoundaryNodes) )
+        G *= -1.0
+        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
     
     def precondition(self, preconditioner=None, M=None):
         """Generate and/or store the preconditioning matrix M.
@@ -752,6 +744,9 @@ class MlsSim(metaclass=ABCMeta):
             
         """
         pass
+    
+    # @abstractmethod
+    # def applyBCs(self): pass
     
     @abstractmethod
     def solve(self, *args, **kwargs):

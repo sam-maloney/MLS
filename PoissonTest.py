@@ -22,12 +22,15 @@ def g(points):
     k = 1
     return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
             
-Nquad=1
-support=-1
-form='cubic'
-method='galerkin'
-quadrature='gaussian'
+kwargs={
+    'Nquad' : 1,
+    'support' : -1,
+    'form' : 'cubic',
+    'method' : 'galerkin',
+    'quadrature' : 'gaussian' }
+
 precon='ilu'
+tolerance = 1e-10
 
 # allocate arrays for convergence testing
 start = 1
@@ -47,10 +50,9 @@ for iN, N in enumerate(N_array):
     print('N =', N)
     
     # allocate arrays and compute boundary values
-    mlsSim = PoissonMlsSim(N, g, Nquad, support, form, method, quadrature)
+    mlsSim = PoissonMlsSim(N, g, **kwargs)
     
     # Assemble the stiffness matrix and solve for the approximate solution
-    tolerance = 1e-10
     mlsSim.assembleStiffnessMatrix()
     mlsSim.solve(preconditioner=precon, tol=tolerance, atol=tolerance)
     
