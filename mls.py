@@ -503,8 +503,7 @@ class MlsSim(metaclass=ABCMeta):
         The default is 'gaussian'.
     """
     
-    def __init__(self, N, Nquad=2, support=-1, form='cubic',
-                 method='galerkin', quadrature='gaussian'):
+    def __init__(self, N, Nquad=2, support=-1, form='cubic', **kwargs):
         self.N = N
         self.nCells = N*N
         self.nNodes = (N+1)*(N+1)
@@ -526,8 +525,7 @@ class MlsSim(metaclass=ABCMeta):
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N}," \
-               f"{self.Nquad},{self.support*self.N},'{self.form}'," \
-               f"'{self.method}','{self.quadrature}')"
+               f"{self.Nquad},{self.support*self.N},'{self.form}',"
     
     def generateQuadraturePoints(self, quadrature):
         """Compute array of quadrature points for Galerkin integration.
@@ -669,7 +667,8 @@ class MlsSim(metaclass=ABCMeta):
                                 shape=(self.nNodes, self.nNodes) )
     
     def applyLagrangeMultiplierDirichletBCs(self):
-        # apply Dirichlet boundary conditions using Lagrange multiplier method
+        """Apply Dirichlet boundary conditions via Lagrange multiplier method.
+        """
         # pre-allocate arrays for additional stiffness matrix triplets
         # these are the maximum possibly required sizes; not all will be used
         nMaxEntriesPerNode = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)

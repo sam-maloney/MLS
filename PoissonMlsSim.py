@@ -48,7 +48,7 @@ class PoissonMlsSim(mls.MlsSim):
             The object must take an nx2 numpy.ndarray of points and return a
             1D numpy.ndarray of size n for the function values at those points.
         **kwargs
-            Keyword arguments to be passed to the base MlsSim class constructor.
+            Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
         
         Returns
@@ -114,7 +114,7 @@ class PoissonMlsSim(mls.MlsSim):
             See mls.MlsSim.precontion() for details. The default is None.
         **kwargs
             Keyword arguments to be passed to the scipy solver routine.
-            See the scipy.spare.linalg.lgmres documentation for details.
+            See the scipy.sparse.linalg.lgmres documentation for details.
 
         Returns
         -------

@@ -36,7 +36,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     
     """
     
-    def __init__(self, N, velocity, diffusivity, **kwargs):
+    def __init__(self, N, dt, u0, velocity, diffusivity, **kwargs):
         """Construct ConvectionDiffusionMlsSim by extending MlsSim constructor
     
         Parameters
@@ -45,7 +45,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             Number of grid cells along one dimension.
             Must be greater than 0.
         **kwargs
-            Keyword arguments to be passed to the base MlsSim class constructor.
+            Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
         
         Returns
@@ -56,45 +56,42 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         super().__init__(N, **kwargs)
         self.velocity = velocity
         self.diffusivity = diffusivity
-        self.selectMethod(kwargs['method'], kwargs['quadrature'])
+        self.generateQuadraturePoints(kwargs['quadrature'])
+        self.dudt = np.zeros(self.nNodes, dtype='float64')
+        self.time = 0.0
+        self.dt = dt
+        error_message = \
+            f"Error: u0 must be an array of shape ({self.nNodes},) or a "\
+            f"function returning such an array and taking as input the array "\
+            f"of (x,y) node coordinates with shape ({self.nNodes}, 2).\n"\
+            f"Using default u0 = np.zeros({self.nNodes}, dtype='float64')"
+        self.u0 = u0
+        try:
+            if u0.shape == (self.nNodes,):
+                self.u = u0
+            else:
+                raise Exception()
+        except AttributeError: # u0 object has no attribute 'shape'
+            self.u = u0(self.nodes)
+            if self.u.shape != (self.nNodes,):
+                raise Exception()
+        except:
+            print(error_message)
+            self.u = np.zeros(self.nNodes, dtype='float64')
     
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.N}," \
-               f"{self.Nquad},{self.support*self.N},'{self.form}'," \
-               f"'{self.method}','{self.quadrature}')"
-    
-    def selectMethod(self, method, quadrature):
-        """Register the 'self.assembleStiffnesMatrix' method.
-        
-        Parameters
-        ----------
-        method : string
-            Method used for assembling the stiffness matrix.
-            Must be either 'galerkin' or 'collocation'.
-        quadrature : string
-            Distribution of quadrature points in each cell.
-            Must be either 'uniform' or 'gaussian'.
-
-        Returns
-        -------
-        None.
-
-        """
-        self.method = method.lower()
-        if method.lower() == 'galerkin':
-            self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrix
-            self.generateQuadraturePoints(quadrature)
-        elif method.lower() == 'collocation':
-            self.assembleStiffnessMatrix = self.assembleCollocationStiffnessMatrix
-        else:
-            print(f"Error: unkown assembly method '{method}'. "
-                  f"Must be one of 'galerkin' or 'collocation'.")
+        return f"{self.__class__.__name__}({self.N}, {self.dt}, " \
+               f"{self.u0.__name__}, {repr(self.velocity)}, " \
+               f"{self.diffusivity}, Nquad={self.Nquad}, " \
+               f"support={self.support*self.N}, form='{self.form}', " \
+               f"quadrature='{self.quadrature}')"
     
     def computeSpatialDiscretization(self):
         """Assemble the system discretization matrices K, A, M in CSR format.
         K is the stiffness matrix from the diffusion term
         A is the advection matrix
         M is the mass matrix from the time derivative
+        KA = K + A
 
         Returns
         -------
@@ -133,9 +130,22 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                                 shape=(self.nNodes, self.nNodes) )
         self.M = sp.csr_matrix( (Mdata[M_inds], (row_ind[M_inds], col_ind[M_inds])),
                                 shape=(self.nNodes, self.nNodes) )
-        self.K *= -self.quadWeight
+        self.K *= -self.quadWeight*self.diffusivity
         self.A *= -self.quadWeight
-        self.M *= -self.quadWeight
+        self.M *= self.quadWeight
+        self.KA = self.K + self.A
+    
+    def step(self, nSteps = 1, **kwargs):
+        info = 0
+        for i in range(nSteps):
+        #     self.u, info = sp_la.lgmres(self.M, self.M@self.u + self.dt*self.KA@self.u, x0=self.u, **kwargs)
+            self.u = sp_la.spsolve(self.M, self.M@self.u + self.dt*self.KA@self.u)
+        # for i in range(nSteps):
+        #     # self.dudt, info = sp_la.lgmres(self.M, self.KA@self.u, x0=self.dudt, **kwargs)
+        #     self.dudt = sp_la.spsolve(self.M, self.KA@self.u)
+        #     self.u += self.dt*self.dudt
+            if (info != 0):
+                print(f'solution failed with error code: {info}')
         
     def defineSupport(self, point):
         distances = la.norm(point - self.nodes, axis=1)
@@ -152,7 +162,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         if point[1] - self.support < 0.0:
             distances = la.norm((point + [0.0, 1.0]) - self.nodes, axis=1)
             indices = np.append(indices, np.flatnonzero(distances < self.support))
-        return indices.astype('uint32')
+        return np.unique(indices).astype('uint32')
     
     def solve(self, preconditioner=None, **kwargs):
         """Solve for the approximate solution using an iterative solver.
@@ -164,7 +174,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             See mls.MlsSim.precontion() for details. The default is None.
         **kwargs
             Keyword arguments to be passed to the scipy solver routine.
-            See the scipy.spare.linalg.lgmres documentation for details.
+            See the scipy.sparse.linalg.lgmres documentation for details.
 
         Returns
         -------
