@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
             
 # N is the number of grid cells along one dimension,
 # therefore the number of nodes equals (N+1)*(N+1)
-N = 3
+N = 10
 dt = 0.01
 velocity = np.array([0.0, 0.0], dtype='float64')
 diffusivity = 0.001
@@ -71,11 +71,12 @@ print(f'Set-up time = {current_time-start_time} s')
 
 start_time = default_timer()
 
-mlsSim.step(1)
+# mlsSim.step(1)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')
     
+mlsSim.solve()
 
 # # loop over timesteps 
 # nSteps = 100
@@ -110,7 +111,8 @@ mpl.rc('ytick', labelsize='large')
 
 # plot the result
 # plt.subplot(221)
-plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], mlsSim.u, shading='gouraud')
+plt.tripcolor(mlsSim.uNodes()[:,0],
+              mlsSim.uNodes()[:,1], mlsSim.u, shading='gouraud')
 plt.colorbar()
 plt.xlabel(r'$x$')
 plt.ylabel(r'$y$')
@@ -119,7 +121,8 @@ plt.margins(0,0)
 
 # # plot analytic solution
 # plt.subplot(222)
-# plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], u_exact, shading='gouraud')
+# plt.tripcolor(mlsSim.uNodes()[:,0],
+#               mlsSim.uNodes()[:,1], u_exact, shading='gouraud')
 # plt.colorbar()
 # plt.xlabel(r'$x$')
 # plt.ylabel(r'$y$')

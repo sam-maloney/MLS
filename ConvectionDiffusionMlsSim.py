@@ -59,25 +59,30 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.generateQuadraturePoints(kwargs['quadrature'])
         self.dudt = np.zeros(self.nNodes, dtype='float64')
         self.time = 0.0
+        self.timestep = 0
         self.dt = dt
-        error_message = \
-            f"Error: u0 must be an array of shape ({self.nNodes},) or a "\
-            f"function returning such an array and taking as input the array "\
-            f"of (x,y) node coordinates with shape ({self.nNodes}, 2).\n"\
-            f"Using default u0 = np.zeros({self.nNodes}, dtype='float64')"
-        self.u0 = u0
-        try:
-            if u0.shape == (self.nNodes,):
-                self.u = u0
-            else:
-                raise Exception()
-        except AttributeError: # u0 object has no attribute 'shape'
-            self.u = u0(self.nodes)
-            if self.u.shape != (self.nNodes,):
-                raise Exception()
-        except:
-            print(error_message)
-            self.u = np.zeros(self.nNodes, dtype='float64')
+        ##### Augment nodes for periodic BCs #####
+        self.periodicIndices = np.arange(0, self.nNodes)
+        newInds1 = np.flatnonzero(self.nodes[:,0] < self.support)
+        newInds2 = np.flatnonzero(self.nodes[:,0] > (1.0 - self.support))
+        self.periodicIndices = np.hstack( (self.periodicIndices,
+                                           newInds1,
+                                           newInds2) )
+        self.nodes = np.vstack( (self.nodes,
+                                 self.nodes[newInds1] + [1.0, 0.0],
+                                 self.nodes[newInds2] - [1.0, 0.0]) )
+        newInds1 = np.flatnonzero(self.nodes[:,1] < self.support)
+        newInds2 = np.flatnonzero(self.nodes[:,1] > (1.0 - self.support))
+        self.periodicIndices = np.hstack( (self.periodicIndices, 
+                                           self.periodicIndices[newInds1],
+                                           self.periodicIndices[newInds2]) )
+        self.nodes = np.vstack( (self.nodes,
+                                 self.nodes[newInds1] + [0.0, 1.0],
+                                 self.nodes[newInds2] - [0.0, 1.0]) )
+        self.nodes, newInds = np.unique(self.nodes, return_index=True, axis=0)
+        self.uIndices = np.flatnonzero(newInds<self.nNodes)
+        self.periodicIndices = self.periodicIndices[newInds]
+        self.setInitialConditions(u0)
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N}, {self.dt}, " \
@@ -85,6 +90,46 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                f"{self.diffusivity}, Nquad={self.Nquad}, " \
                f"support={self.support*self.N}, form='{self.form}', " \
                f"quadrature='{self.quadrature}')"
+    
+    def setInitialConditions(self, u0):
+        """Reconstruct the final solution vector, u, from shape functions.
+
+        Returns
+        -------
+        None.
+
+        """
+        self.u0 = u0
+        self.uTime = 0.0
+        try:
+            if u0.shape == (self.nNodes,):
+                self.u = u0
+            else:
+                raise Exception()
+        except AttributeError: # u0 object has no attribute 'shape'
+            self.u = u0(self.uNodes())
+            if self.u.shape != (self.nNodes,):
+                raise Exception()
+        except:
+            print(f"Error: u0 must be an array of shape ({self.nNodes},) or a "
+                  f"function returning such an array and taking as input the "
+                  f"array of (x,y) node coordinates with shape "
+                  f"({self.nNodes}, 2).\nUsing default u = "
+                  f"np.zeros({self.nNodes}, dtype='float64')")
+            self.u = np.zeros(self.nNodes, dtype='float64')
+        self.uI = np.zeros(self.nNodes, dtype='float64')
+        for iN, node in enumerate(self.uNodes()):
+            indices = self.defineSupport(node)
+            phi = mls.shapeFunctions0(node, self.nodes[indices],
+                                      self.weightFunction, self.support)
+            for i, ind in enumerate(self.periodicIndices[indices]):
+                self.uI[ind] += self.u[iN] / phi[i]
+                
+        # for iN, node in enumerate(self.uNodes()):
+        #     indices = self.defineSupport(node)
+        #     phi = mls.shapeFunctions0(node, self.nodes[indices],
+        #                               self.weightFunction, self.support)
+        #     self.u[iN] = self.uI[self.periodicIndices[indices]]@phi
     
     def computeSpatialDiscretization(self):
         """Assemble the system discretization matrices K, A, M in CSR format.
@@ -113,10 +158,13 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             nEntries = len(indices)**2
             phi, gradphi = mls.shapeFunctions1(quad, self.nodes[indices],
                                            self.weightFunction, self.support)
+            if np.any(phi<0):
+                print('Negative phi value detected!!!!!')
             Kdata[index:index+nEntries] = np.ravel(gradphi@gradphi.T)
             Adata[index:index+nEntries] = np.ravel(
                 np.outer(np.dot(gradphi, self.velocity), phi) )
             Mdata[index:index+nEntries] = np.ravel(np.outer(phi, phi))
+            indices = self.periodicIndices[indices]
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
             index += nEntries
@@ -138,60 +186,32 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     def step(self, nSteps = 1, **kwargs):
         info = 0
         for i in range(nSteps):
-        #     self.u, info = sp_la.lgmres(self.M, self.M@self.u + self.dt*self.KA@self.u, x0=self.u, **kwargs)
-            self.u = sp_la.spsolve(self.M, self.M@self.u + self.dt*self.KA@self.u)
+        #     self.uI, info = sp_la.lgmres(self.M, self.M@self.uI + self.dt*self.KA@self.uI, x0=self.uI, **kwargs)
+            self.uI = sp_la.spsolve(self.M, self.M@self.uI + self.dt*self.KA@self.uI)
         # for i in range(nSteps):
-        #     # self.dudt, info = sp_la.lgmres(self.M, self.KA@self.u, x0=self.dudt, **kwargs)
-        #     self.dudt = sp_la.spsolve(self.M, self.KA@self.u)
-        #     self.u += self.dt*self.dudt
+        #     # self.dudt, info = sp_la.lgmres(self.M, self.KA@self.uI, x0=self.dudt, **kwargs)
+        #     self.dudt = sp_la.spsolve(self.M, self.KA@self.uI)
+        #     self.uI += self.dt*self.dudt
             if (info != 0):
                 print(f'solution failed with error code: {info}')
-        
-    def defineSupport(self, point):
-        distances = la.norm(point - self.nodes, axis=1)
-        indices = np.flatnonzero(distances < self.support)
-        if point[0] + self.support > 1.0:
-            distances = la.norm((point - [1.0, 0.0]) - self.nodes, axis=1)
-            indices = np.append(indices, np.flatnonzero(distances < self.support))
-        if point[0] - self.support < 0.0:
-            distances = la.norm((point + [1.0, 0.0]) - self.nodes, axis=1)
-            indices = np.append(indices, np.flatnonzero(distances < self.support))
-        if point[1] + self.support > 1.0:
-            distances = la.norm((point - [0.0, 1.0]) - self.nodes, axis=1)
-            indices = np.append(indices, np.flatnonzero(distances < self.support))
-        if point[1] - self.support < 0.0:
-            distances = la.norm((point + [0.0, 1.0]) - self.nodes, axis=1)
-            indices = np.append(indices, np.flatnonzero(distances < self.support))
-        return np.unique(indices).astype('uint32')
+        self.timestep += 1
+        self.time = self.timestep * self.dt
     
-    def solve(self, preconditioner=None, **kwargs):
-        """Solve for the approximate solution using an iterative solver.
-
-        Parameters
-        ----------
-        preconditioner : {string, None}, optional
-            Which preconditioning method to use.
-            See mls.MlsSim.precontion() for details. The default is None.
-        **kwargs
-            Keyword arguments to be passed to the scipy solver routine.
-            See the scipy.sparse.linalg.lgmres documentation for details.
+    def uNodes(self):
+        return self.nodes[self.uIndices]
+    
+    def solve(self):
+        """Reconstruct the final solution vector, u, from shape functions.
 
         Returns
         -------
         None.
 
         """
-        if "M" not in kwargs:
-            kwargs["M"] = None
-        self.precondition(preconditioner, kwargs["M"])
-        uTmp, self.info = sp_la.lgmres(self.K, self.b, **kwargs)
-        if (self.info != 0):
-            print(f'solution failed with error code: {self.info}')
-        # uTmp = sp_la.spsolve(self.K, self.b) # direct solver for testing
-        # reconstruct final u vector from shape functions
+        self.uTime = self.time
         self.u = np.empty(self.nNodes, dtype='float64')
-        for iN, node in enumerate(self.nodes):
+        for iN, node in enumerate(self.uNodes()):
             indices = self.defineSupport(node)
             phi = mls.shapeFunctions0(node, self.nodes[indices],
                                       self.weightFunction, self.support)
-            self.u[iN] = uTmp[indices]@phi
+            self.u[iN] = self.uI[self.periodicIndices[indices]]@phi

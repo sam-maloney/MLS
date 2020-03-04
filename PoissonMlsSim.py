@@ -98,11 +98,6 @@ class PoissonMlsSim(mls.MlsSim):
         else:
             print(f"Error: unkown assembly method '{method}'. "
                   f"Must be one of 'galerkin' or 'collocation'.")
-        
-    def defineSupport(self, point):
-        distances = la.norm(point - self.nodes, axis=1)
-        indices = np.flatnonzero(distances < self.support).astype('uint32')
-        return indices
     
     def solve(self, preconditioner=None, **kwargs):
         """Solve for the approximate solution using an iterative solver.

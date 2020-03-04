@@ -519,7 +519,7 @@ class MlsSim(metaclass=ABCMeta):
             else: # if form is unkown
                 self.support = 1.5/N
         self.nodes = ( np.indices((N+1, N+1), dtype='float64')
-                       .T.reshape(-1,2) ) / N
+                       .reshape(2,-1).T ) / N
         self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
         self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
     
@@ -727,7 +727,6 @@ class MlsSim(metaclass=ABCMeta):
                       "'galerkin' assembly method. Use 'ilu' or None instead."
                       " Defaulting to None.")
     
-    @abstractmethod
     def defineSupport(self, point):
         """Find nodes within support of a given evaluation point.
 
@@ -742,12 +741,14 @@ class MlsSim(metaclass=ABCMeta):
             Indices of nodes within support of given evaluation point.
             
         """
-        pass
+        distances = la.norm(point - self.nodes, axis=1)
+        indices = np.flatnonzero(distances < self.support).astype('uint32')
+        return indices
     
     # @abstractmethod
     # def applyBCs(self): pass
     
-    @abstractmethod
+    # @abstractmethod
     def solve(self, *args, **kwargs):
         """Solve for the approximate solution."""
         pass
