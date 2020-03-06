@@ -92,7 +92,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                f"quadrature='{self.quadrature}')"
     
     def setInitialConditions(self, u0):
-        """Reconstruct the final solution vector, u, from shape functions.
+        """Initialize the shape function coefficients for the given IC.
 
         Returns
         -------
@@ -117,19 +117,26 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                   f"({self.nNodes}, 2).\nUsing default u = "
                   f"np.zeros({self.nNodes}, dtype='float64')")
             self.u = np.zeros(self.nNodes, dtype='float64')
-        self.uI = np.zeros(self.nNodes, dtype='float64')
+        # pre-allocate arrays for constructing matrix equation for uI
+        # this is the maximum possibly required size; not all will be used
+        nMaxEntriesPerNode = int(self.nNodes*4*(self.support+0.25/self.N)**2)
+        data = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='float64')
+        indices = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='uint32')
+        indptr = np.empty(self.nNodes+1, dtype='uint32')
+        index = 0
         for iN, node in enumerate(self.uNodes()):
-            indices = self.defineSupport(node)
-            phi = mls.shapeFunctions0(node, self.nodes[indices],
+            inds = self.defineSupport(node)
+            nEntries = len(inds)
+            phi = mls.shapeFunctions0(node, self.nodes[inds],
                                       self.weightFunction, self.support)
-            for i, ind in enumerate(self.periodicIndices[indices]):
-                self.uI[ind] += self.u[iN] / phi[i]
-                
-        # for iN, node in enumerate(self.uNodes()):
-        #     indices = self.defineSupport(node)
-        #     phi = mls.shapeFunctions0(node, self.nodes[indices],
-        #                               self.weightFunction, self.support)
-        #     self.u[iN] = self.uI[self.periodicIndices[indices]]@phi
+            data[index:index+nEntries] = phi
+            indices[index:index+nEntries] = self.periodicIndices[inds]
+            indptr[iN] = index
+            index += nEntries
+        indptr[-1] = index
+        A = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
+                           shape=(self.nNodes, self.nNodes) )
+        self.uI = sp_la.spsolve(A, self.u)
     
     def computeSpatialDiscretization(self):
         """Assemble the system discretization matrices K, A, M in CSR format.
@@ -185,13 +192,13 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     
     def step(self, nSteps = 1, **kwargs):
         info = 0
-        for i in range(nSteps):
-        #     self.uI, info = sp_la.lgmres(self.M, self.M@self.uI + self.dt*self.KA@self.uI, x0=self.uI, **kwargs)
-            self.uI = sp_la.spsolve(self.M, self.M@self.uI + self.dt*self.KA@self.uI)
         # for i in range(nSteps):
-        #     # self.dudt, info = sp_la.lgmres(self.M, self.KA@self.uI, x0=self.dudt, **kwargs)
-        #     self.dudt = sp_la.spsolve(self.M, self.KA@self.uI)
-        #     self.uI += self.dt*self.dudt
+        # #     self.uI, info = sp_la.lgmres(self.M, self.M@self.uI + self.dt*self.KA@self.uI, x0=self.uI, **kwargs)
+        #     self.uI = sp_la.spsolve(self.M, self.M@self.uI + self.dt*self.KA@self.uI)
+        for i in range(nSteps):
+            self.dudt, info = sp_la.lgmres(self.M, self.KA@self.uI, x0=self.dudt, **kwargs)
+            # self.dudt = sp_la.spsolve(self.M, self.KA@self.uI)
+            self.uI += self.dt*self.dudt
             if (info != 0):
                 print(f'solution failed with error code: {info}')
         self.timestep += 1

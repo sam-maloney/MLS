@@ -641,7 +641,7 @@ class MlsSim(metaclass=ABCMeta):
         None.
 
         """
-        # pre-allocate array for indices
+        # pre-allocate arrays for constructing stiffness matrix
         # this is the maximum possibly required size; not all will be used
         nMaxEntriesPerNode = int(self.nNodes*4*(self.support+0.25/self.N)**2)
         data = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='float64')

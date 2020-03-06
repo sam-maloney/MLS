@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
 # therefore the number of nodes equals (N+1)*(N+1)
 N = 10
 dt = 0.01
-velocity = np.array([0.0, 0.0], dtype='float64')
+velocity = np.array([0.1, 0.0], dtype='float64')
 diffusivity = 0.001
 print(f'N = {N}\ndt = {dt}\nvelocity = {velocity}\ndiffusivity = {diffusivity}')
 
@@ -60,18 +60,16 @@ tolerance = 1e-10
 
 start_time = default_timer()
     
-# allocate arrays and compute boundary values
+# Initialize simulation
 mlsSim = ConvectionDiffusionMlsSim(**kwargs)
-# Assemble the stiffness matrix and solve for the approximate solution
 mlsSim.computeSpatialDiscretization()
 
 current_time = default_timer()
 print(f'Set-up time = {current_time-start_time} s')
-# print('Condition Number =', mlsSim.cond('fro'))
 
 start_time = default_timer()
 
-# mlsSim.step(1)
+mlsSim.step(70)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')
