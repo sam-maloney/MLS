@@ -506,7 +506,6 @@ class MlsSim(metaclass=ABCMeta):
     def __init__(self, N, Nquad=2, support=-1, form='cubic', **kwargs):
         self.N = N
         self.nCells = N*N
-        self.nNodes = (N+1)*(N+1)
         self.Nquad = Nquad
         self.selectWeightFunction(form)
         if support > 0:
@@ -518,8 +517,6 @@ class MlsSim(metaclass=ABCMeta):
                 self.support = 1.9/N
             else: # if form is unkown
                 self.support = 1.5/N
-        self.nodes = ( np.indices((N+1, N+1), dtype='float64')
-                       .reshape(2,-1).T ) / N
         self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
         self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
     
@@ -631,7 +628,28 @@ class MlsSim(metaclass=ABCMeta):
         self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
                                 shape=(self.nNodes, self.nNodes) )
         self.K *= self.quadWeight
-        self.applyBCs()
+        # pre-allocate arrays for additional stiffness matrix triplets
+        # these are the maximum possibly required sizes; not all will be used
+        nMaxEntriesPerNode = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
+        nMaxEntries = self.nBoundaryNodes * nMaxEntriesPerNode
+        data = np.zeros(nMaxEntries, dtype='float64')
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        index = 0
+        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+            indices = self.defineSupport(node)
+            nEntries = len(indices)
+            phi = shapeFunctions0(node, self.nodes[indices],
+                                  self.weightFunction, self.support)
+            data[index:index+nEntries] = -1.0*phi
+            row_ind[index:index+nEntries] = indices
+            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
+            index += nEntries
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                           shape=(self.nNodes, self.nBoundaryNodes) )
+        G *= -1.0
+        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
     
     def assembleCollocationStiffnessMatrix(self):
         """Assemble the collocation system stiffness matrix K in CSR format.
@@ -665,32 +683,6 @@ class MlsSim(metaclass=ABCMeta):
         indptr[-1] = index
         self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                                 shape=(self.nNodes, self.nNodes) )
-    
-    def applyLagrangeMultiplierDirichletBCs(self):
-        """Apply Dirichlet boundary conditions via Lagrange multiplier method.
-        """
-        # pre-allocate arrays for additional stiffness matrix triplets
-        # these are the maximum possibly required sizes; not all will be used
-        nMaxEntriesPerNode = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
-        nMaxEntries = self.nBoundaryNodes * nMaxEntriesPerNode
-        data = np.zeros(nMaxEntries, dtype='float64')
-        row_ind = np.zeros(nMaxEntries, dtype='uint32')
-        col_ind = np.zeros(nMaxEntries, dtype='uint32')
-        index = 0
-        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
-            indices = self.defineSupport(node)
-            nEntries = len(indices)
-            phi = shapeFunctions0(node, self.nodes[indices],
-                                  self.weightFunction, self.support)
-            data[index:index+nEntries] = -1.0*phi
-            row_ind[index:index+nEntries] = indices
-            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
-            index += nEntries
-        inds = np.flatnonzero(data.round(decimals=14,out=data))
-        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
-                           shape=(self.nNodes, self.nBoundaryNodes) )
-        G *= -1.0
-        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
     
     def precondition(self, preconditioner=None, M=None):
         """Generate and/or store the preconditioning matrix M.
@@ -745,8 +737,16 @@ class MlsSim(metaclass=ABCMeta):
         indices = np.flatnonzero(distances < self.support).astype('uint32')
         return indices
     
-    # @abstractmethod
-    # def applyBCs(self): pass
+    def uNodes(self):
+        """Return the set of nodes on which the solution is computed.
+
+        Returns
+        -------
+        nx2 numpy.ndarray, dtype='float64'
+            Default implementation returns the full set of self.nodes.
+
+        """
+        return self.nodes
     
     # @abstractmethod
     def solve(self, *args, **kwargs):

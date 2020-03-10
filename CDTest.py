@@ -16,14 +16,6 @@ from timeit import default_timer
 import warnings
 warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
             
-# N is the number of grid cells along one dimension,
-# therefore the number of nodes equals (N+1)*(N+1)
-N = 10
-dt = 0.01
-velocity = np.array([0.1, 0.0], dtype='float64')
-diffusivity = 0.001
-print(f'N = {N}\ndt = {dt}\nvelocity = {velocity}\ndiffusivity = {diffusivity}')
-
 def gaussian(points):
     A = 1.0
     x0 = 0.5
@@ -36,6 +28,14 @@ def gaussian(points):
 def hat(points):
     return np.hstack((points > 0.25, points < 0.75)).all(1).astype('float64')
 
+# N is the number of grid cells along one dimension,
+# therefore the number of nodes equals N*N
+N = 30
+dt = 0.001
+velocity = np.array([0.1, 0.0], dtype='float64')
+diffusivity = 0.0001
+print(f'N = {N}\ndt = {dt}\nvelocity = {velocity}\ndiffusivity = {diffusivity}')
+
 kwargs={
     'N' : N,
     'dt' : dt,
@@ -43,7 +43,7 @@ kwargs={
     'velocity' : velocity,
     'diffusivity' : diffusivity,
     'Nquad' : 1,
-    'support' : -1,
+    'support' : 1.9,
     'form' : 'cubic',
     'quadrature' : 'gaussian' }
 
@@ -67,9 +67,14 @@ mlsSim.computeSpatialDiscretization()
 current_time = default_timer()
 print(f'Set-up time = {current_time-start_time} s')
 
+M = mlsSim.M.A
+K = mlsSim.K.A
+A = mlsSim.A.A
+KA = mlsSim.KA.A
+
 start_time = default_timer()
 
-mlsSim.step(70)
+mlsSim.step(10000)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')

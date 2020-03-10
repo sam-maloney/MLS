@@ -56,12 +56,14 @@ class PoissonMlsSim(mls.MlsSim):
         None.
     
         """
+        self.nNodes = (N+1)*(N+1)
+        self.nodes = ( np.indices((N+1, N+1), dtype='float64')
+                       .reshape(2,-1).T ) / N
         super().__init__(N, **kwargs)
         self.boundaryValues = g(self.nodes[self.isBoundaryNode]) \
                                 .round(decimals=14)
         self.g = g
         self.selectMethod(kwargs['method'], kwargs['quadrature'])
-        self.applyBCs = self.applyLagrangeMultiplierDirichletBCs
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N},{self.g}," \

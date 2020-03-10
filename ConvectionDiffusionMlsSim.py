@@ -53,6 +53,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         None.
     
         """
+        self.nNodes = N*N
+        self.nodes = np.indices((N, N), dtype='float64').reshape(2,-1).T / N
         super().__init__(N, **kwargs)
         self.velocity = velocity
         self.diffusivity = diffusivity
@@ -165,8 +167,6 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             nEntries = len(indices)**2
             phi, gradphi = mls.shapeFunctions1(quad, self.nodes[indices],
                                            self.weightFunction, self.support)
-            if np.any(phi<0):
-                print('Negative phi value detected!!!!!')
             Kdata[index:index+nEntries] = np.ravel(gradphi@gradphi.T)
             Adata[index:index+nEntries] = np.ravel(
                 np.outer(np.dot(gradphi, self.velocity), phi) )
@@ -175,6 +175,9 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
             index += nEntries
+            # print(quad, indices)
+            # if np.any(phi<0):
+            #     print('Negative phi value detected!!!!!')
         K_inds = np.flatnonzero(Kdata.round(decimals=14, out=Kdata))
         A_inds = np.flatnonzero(Adata.round(decimals=14, out=Adata))
         M_inds = np.flatnonzero(Mdata.round(decimals=14, out=Mdata))
@@ -205,6 +208,14 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.time = self.timestep * self.dt
     
     def uNodes(self):
+        """Return the set of nodes on which the solution is computed.
+
+        Returns
+        -------
+        nx2 numpy.ndarray, dtype='float64'
+            Subset of self.nodes on which the solution is actually computed.
+
+        """
         return self.nodes[self.uIndices]
     
     def solve(self):
