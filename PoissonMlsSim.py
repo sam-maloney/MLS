@@ -101,6 +101,127 @@ class PoissonMlsSim(mls.MlsSim):
             print(f"Error: unkown assembly method '{method}'. "
                   f"Must be one of 'galerkin' or 'collocation'.")
     
+    def assembleGalerkinStiffnessMatrix(self):
+        """Assemble the Galerkin system stiffness matrix K in CSR format.
+
+        Returns
+        -------
+        None.
+
+        """
+        # pre-allocate arrays for stiffness matrix triplets
+        # these are the maximum possibly required sizes; not all will be used
+        nMaxEntriesPerQuad = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
+        data = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='float64')
+        row_ind = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='uint32')
+        col_ind = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='uint32')
+        # build matrix for interior nodes
+        index = 0
+        for iQ, quad in enumerate(self.quads):
+            indices = self.defineSupport(quad)
+            nEntries = len(indices)**2
+            phi, gradphi = mls.shapeFunctions1(quad, self.nodes[indices],
+                                             self.weightFunction, self.support)
+            data[index:index+nEntries] = np.ravel(gradphi@gradphi.T)
+            row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
+            col_ind[index:index+nEntries] = np.tile(indices, len(indices))
+            index += nEntries
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        # assemble the triplets into the sparse stiffness matrix
+        self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                                shape=(self.nNodes, self.nNodes) )
+        self.K *= self.quadWeight
+        # pre-allocate arrays for additional stiffness matrix triplets
+        # these are the maximum possibly required sizes; not all will be used
+        nMaxEntriesPerNode = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
+        nMaxEntries = self.nBoundaryNodes * nMaxEntriesPerNode
+        data = np.zeros(nMaxEntries, dtype='float64')
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        index = 0
+        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+            indices = self.defineSupport(node)
+            nEntries = len(indices)
+            phi = mls.shapeFunctions0(node, self.nodes[indices],
+                                      self.weightFunction, self.support)
+            data[index:index+nEntries] = -1.0*phi
+            row_ind[index:index+nEntries] = indices
+            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
+            index += nEntries
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                           shape=(self.nNodes, self.nBoundaryNodes) )
+        G *= -1.0
+        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
+    
+    def assembleCollocationStiffnessMatrix(self):
+        """Assemble the collocation system stiffness matrix K in CSR format.
+
+        Returns
+        -------
+        None.
+
+        """
+        # pre-allocate arrays for constructing stiffness matrix
+        # this is the maximum possibly required size; not all will be used
+        nMaxEntriesPerNode = int(self.nNodes*4*(self.support+0.25/self.N)**2)
+        data = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='float64')
+        indices = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='uint32')
+        indptr = np.empty(self.nNodes+1, dtype='uint32')
+        index = 0
+        for iN, node in enumerate(self.nodes):
+            inds = self.defineSupport(node)
+            nEntries = len(inds)
+            indptr[iN] = index
+            indices[index:index+nEntries] = inds
+            if (self.isBoundaryNode[iN]):
+                phi = mls.shapeFunctions0(node, self.nodes[inds],
+                                          self.weightFunction, self.support)
+                data[index:index+nEntries] = phi
+            else:
+                phi, d2phi = mls.shapeFunctions2(node, self.nodes[inds],
+                                             self.weightFunction, self.support)
+                data[index:index+nEntries] = d2phi.sum(axis=1)
+            index += nEntries
+        indptr[-1] = index
+        self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
+                                shape=(self.nNodes, self.nNodes) )
+    
+    def precondition(self, preconditioner=None, M=None):
+        """Generate and/or store the preconditioning matrix M.
+
+        Parameters
+        ----------
+        preconditioner : {string, None}, optional
+            Which preconditioning method to use.
+            Must be one of 'jacobi', 'ilu', or None. The default is None.
+        M : {scipy.sparse.linalg.LinearOperator, None}, optional
+            Used to directly specifiy the linear operator to be used.
+            Only used if preconditioner==None, otherwise ignored.
+            The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
+        self.preconditioner = preconditioner
+        if preconditioner == None:
+            self.M = M
+        elif preconditioner.lower() == 'ilu':
+            ilu = sp_la.spilu(self.K)
+            Mx = lambda x: ilu.solve(x)
+            self.M = sp_la.LinearOperator(self.K.shape, Mx)
+        elif preconditioner.lower() == 'jacobi':
+            if self.method.lower() == 'collocation':
+                self.M = sp_la.inv( sp.diags(
+                    self.K.diagonal(), format='csc', dtype='float64') )
+            else: # if method == 'galerkin'
+                self.M = M
+                print("Error: 'jacobi' preconditioner not compatible with "
+                      "'galerkin' assembly method. Use 'ilu' or None instead."
+                      " Defaulting to None.")
+    
     def solve(self, preconditioner=None, **kwargs):
         """Solve for the approximate solution using an iterative solver.
 
@@ -132,3 +253,25 @@ class PoissonMlsSim(mls.MlsSim):
             phi = mls.shapeFunctions0(node, self.nodes[indices],
                                       self.weightFunction, self.support)
             self.u[iN] = uTmp[indices]@phi
+            
+    def cond(self, order=2, preconditioned=True):
+        """Computes the condition number of the stiffness matrix K.
+        
+        Parameters
+        ----------
+        order : {int, inf, -inf, ‘fro’}, optional
+            Order of the norm. inf means numpy’s inf object. The default is 2.
+        preconditioned : bool, optional
+            Whether to compute the condition number with the preconditioning
+            operation applied to the stiffness matrix. The default is True.
+
+        Returns
+        -------
+        float
+            The condition number of the matrix.
+
+        """
+        if preconditioned:
+            return super().cond(self.K, self.M, order)
+        else:
+            return super().cond(self.K, None, order)

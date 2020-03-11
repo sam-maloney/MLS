@@ -31,9 +31,9 @@ def hat(points):
 # N is the number of grid cells along one dimension,
 # therefore the number of nodes equals N*N
 N = 30
-dt = 0.001
-velocity = np.array([0.1, 0.0], dtype='float64')
-diffusivity = 0.0001
+dt = 0.1
+velocity = np.array([0.1, 0.1], dtype='float64')
+diffusivity = 0.0
 print(f'N = {N}\ndt = {dt}\nvelocity = {velocity}\ndiffusivity = {diffusivity}')
 
 kwargs={
@@ -42,7 +42,7 @@ kwargs={
     'u0' : gaussian,
     'velocity' : velocity,
     'diffusivity' : diffusivity,
-    'Nquad' : 1,
+    'Nquad' : 2,
     'support' : 1.9,
     'form' : 'cubic',
     'quadrature' : 'gaussian' }
@@ -74,7 +74,7 @@ KA = mlsSim.KA.A
 
 start_time = default_timer()
 
-mlsSim.step(10000)
+mlsSim.step(100, tol=tolerance, atol=tolerance)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')

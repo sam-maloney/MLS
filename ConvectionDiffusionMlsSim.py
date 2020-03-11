@@ -189,22 +189,24 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.M = sp.csr_matrix( (Mdata[M_inds], (row_ind[M_inds], col_ind[M_inds])),
                                 shape=(self.nNodes, self.nNodes) )
         self.K *= -self.quadWeight*self.diffusivity
-        self.A *= -self.quadWeight
+        self.A *= self.quadWeight
         self.M *= self.quadWeight
         self.KA = self.K + self.A
     
     def step(self, nSteps = 1, **kwargs):
         info = 0
-        # for i in range(nSteps):
-        # #     self.uI, info = sp_la.lgmres(self.M, self.M@self.uI + self.dt*self.KA@self.uI, x0=self.uI, **kwargs)
-        #     self.uI = sp_la.spsolve(self.M, self.M@self.uI + self.dt*self.KA@self.uI)
+        betas = np.array([0.25, 1.0/3.0, 0.5, 1.0], dtype='float64')
+        # betas = np.array([1.0], dtype='float64')
         for i in range(nSteps):
-            self.dudt, info = sp_la.lgmres(self.M, self.KA@self.uI, x0=self.dudt, **kwargs)
-            # self.dudt = sp_la.spsolve(self.M, self.KA@self.uI)
-            self.uI += self.dt*self.dudt
-            if (info != 0):
-                print(f'solution failed with error code: {info}')
-        self.timestep += 1
+            uTemp = self.uI
+            for beta in betas:
+                self.dudt, info = sp_la.cg(self.M, self.KA@uTemp, x0=self.dudt, **kwargs)
+                # self.dudt = sp_la.spsolve(self.M, self.KA@self.uI)
+                uTemp = self.uI + beta*self.dt*self.dudt
+                if (info != 0):
+                    print(f'solution failed with error code: {info}')
+            self.uI = uTemp
+            self.timestep += 1
         self.time = self.timestep * self.dt
     
     def uNodes(self):
@@ -233,3 +235,19 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             phi = mls.shapeFunctions0(node, self.nodes[indices],
                                       self.weightFunction, self.support)
             self.u[iN] = self.uI[self.periodicIndices[indices]]@phi
+    
+    def cond(self, order=2):
+        """Computes the condition number of the mass matrix M.
+        
+        Parameters
+        ----------
+        order : {int, inf, -inf, ‘fro’}, optional
+            Order of the norm. inf means numpy’s inf object. The default is 2.
+
+        Returns
+        -------
+        float
+            The condition number of the matrix.
+
+        """
+        return super().cond(self.M, None, order)
