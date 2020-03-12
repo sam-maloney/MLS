@@ -23,10 +23,10 @@ def g(points):
     return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
             
 kwargs={
-    'Nquad' : 1,
+    'Nquad' : 2,
     'support' : -1,
     'form' : 'cubic',
-    'method' : 'galerkin',
+    'method' : 'collocation',
     'quadrature' : 'gaussian' }
 
 precon='ilu'

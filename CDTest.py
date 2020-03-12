@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
+import scipy.linalg as la
 
 from ConvectionDiffusionMlsSim import ConvectionDiffusionMlsSim
 from timeit import default_timer
@@ -39,7 +40,7 @@ print(f'N = {N}\ndt = {dt}\nvelocity = {velocity}\ndiffusivity = {diffusivity}')
 kwargs={
     'N' : N,
     'dt' : dt,
-    'u0' : gaussian,
+    'u0' : hat,
     'velocity' : velocity,
     'diffusivity' : diffusivity,
     'Nquad' : 2,
@@ -67,10 +68,10 @@ mlsSim.computeSpatialDiscretization()
 current_time = default_timer()
 print(f'Set-up time = {current_time-start_time} s')
 
-M = mlsSim.M.A
-K = mlsSim.K.A
-A = mlsSim.A.A
-KA = mlsSim.KA.A
+# M = mlsSim.M.A
+# K = mlsSim.K.A
+# A = mlsSim.A.A
+# KA = mlsSim.KA.A
 
 start_time = default_timer()
 
@@ -85,13 +86,13 @@ mlsSim.solve()
 # nSteps = 100
 # for iStep in range(nSteps):
     
-    
-#     # mlsSim.solve(preconditioner=precon, tol=tolerance, atol=tolerance)
-    
-#     # # compute the analytic solution and error norms
-#     # u_exact = g(mlsSim.nodes)
-#     # E_inf[iN] = np.linalg.norm(mlsSim.u - u_exact, np.inf)
-#     # E_2[iN] = np.linalg.norm(mlsSim.u - u_exact)/N
+        
+# compute the analytic solution and error norms
+u_exact = kwargs['u0'](mlsSim.uNodes())
+E_inf = la.norm(mlsSim.u - u_exact, np.inf)
+E_2 = la.norm(mlsSim.u - u_exact)/N
+print('max error =', E_inf)
+print('L2 error  =', E_2)
     
 #     current_time = default_timer()
     
@@ -106,31 +107,40 @@ mlsSim.solve()
 # clear the current figure, if opened, and set parameters
 fig = plt.gcf()
 fig.clf()
-fig.set_size_inches(15,15)
+fig.set_size_inches(15,7)
 mpl.rc('axes', titlesize='xx-large', labelsize='x-large')
 mpl.rc('xtick', labelsize='large')
 mpl.rc('ytick', labelsize='large')
 # plt.subplots_adjust(hspace = 0.3, wspace = 0.25)
 
 # plot the result
-# plt.subplot(221)
-plt.tripcolor(mlsSim.uNodes()[:,0],
-              mlsSim.uNodes()[:,1], mlsSim.u, shading='gouraud')
+plt.subplot(121)
+plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1],
+              mlsSim.u[mlsSim.periodicIndices], shading='gouraud')
+plt.xlim(0.0, 1.0)
+plt.ylim(0.0, 1.0)
 plt.colorbar()
 plt.xlabel(r'$x$')
 plt.ylabel(r'$y$')
 plt.title('Final MLS solution')
 plt.margins(0,0)
 
-# # plot analytic solution
-# plt.subplot(222)
-# plt.tripcolor(mlsSim.uNodes()[:,0],
-#               mlsSim.uNodes()[:,1], u_exact, shading='gouraud')
-# plt.colorbar()
-# plt.xlabel(r'$x$')
-# plt.ylabel(r'$y$')
-# plt.title('Analytic solution')
-# plt.margins(0,0)
+# # plot error
+difference = mlsSim.u - u_exact
+plt.subplot(122)
+plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1],
+              difference[mlsSim.periodicIndices],
+              shading='gouraud',
+              cmap='seismic',
+              vmin=-np.max(np.abs(difference)),
+              vmax=np.max(np.abs(difference)))
+plt.xlim(0.0, 1.0)
+plt.ylim(0.0, 1.0)
+plt.colorbar()
+plt.xlabel(r'$x$')
+plt.ylabel(r'$y$')
+plt.title('Error')
+plt.margins(0,0)
 
 # # plot the error convergence
 # plt.subplot(223)

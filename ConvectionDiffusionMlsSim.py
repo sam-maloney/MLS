@@ -129,9 +129,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         for iN, node in enumerate(self.uNodes()):
             inds = self.defineSupport(node)
             nEntries = len(inds)
-            phi = mls.shapeFunctions0(node, self.nodes[inds],
-                                      self.weightFunction, self.support)
-            data[index:index+nEntries] = phi
+            data[index:index+nEntries] = self.phi(node, self.nodes[inds])
             indices[index:index+nEntries] = self.periodicIndices[inds]
             indptr[iN] = index
             index += nEntries
@@ -165,8 +163,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         for iQ, quad in enumerate(self.quads):
             indices = self.defineSupport(quad)
             nEntries = len(indices)**2
-            phi, gradphi = mls.shapeFunctions1(quad, self.nodes[indices],
-                                           self.weightFunction, self.support)
+            phi, gradphi = self.dphi(quad, self.nodes[indices])
             Kdata[index:index+nEntries] = np.ravel(gradphi@gradphi.T)
             Adata[index:index+nEntries] = np.ravel(
                 np.outer(np.dot(gradphi, self.velocity), phi) )
@@ -232,9 +229,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.u = np.empty(self.nNodes, dtype='float64')
         for iN, node in enumerate(self.uNodes()):
             indices = self.defineSupport(node)
-            phi = mls.shapeFunctions0(node, self.nodes[indices],
-                                      self.weightFunction, self.support)
-            self.u[iN] = self.uI[self.periodicIndices[indices]]@phi
+            self.u[iN] = self.uI[self.periodicIndices[indices]] @ \
+                         self.phi(node, self.nodes[indices])
     
     def cond(self, order=2):
         """Computes the condition number of the mass matrix M.

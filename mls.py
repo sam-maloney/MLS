@@ -11,173 +11,61 @@ import scipy.linalg as la
 import scipy.sparse as sp
 import scipy.sparse.linalg as sp_la
 
+from scipy.special import comb
 from abc import ABCMeta, abstractmethod
 
 
-def shapeFunctions0(point, nodes, weightFunction, support):
-    """Compute shape function at quad point for all nodes in its support.
-    Basis used is linear basis pT = [1 x y].
-    Computes the shape function value only (no derivatives).
+class Basis(metaclass=ABCMeta):
+    @property
+    @abstractmethod
+    def name(self): pass
 
-    Parameters
-    ----------
-    point : numpy.array([x,y], dtype='float64')
-        Coordinate of evaluation point.
-    nodes : nx2 numpy.ndarray, dtype='float64'
-        Coordinates of nodes within support of given evaluation point.
-
-    Returns
-    -------
-    phi : numpy.array([...], dtype='float64')
-        Values of phi for all nodes in indices.
-
-    """
-    # --------------------------------------
-    #     compute the moment matrix A(x)
-    # --------------------------------------
-    distances = la.norm(point - nodes, axis=-1)/support
-    w = weightFunction.w(distances)
-    p = np.hstack((np.ones((len(nodes),1)), nodes))
-    A = w*p.T@p
-    # --------------------------------------
-    #      compute  matrix c(x) and phi
-    # --------------------------------------
-    # A(x)c(x) = p(x)
-    # Backward substitution for c(x) using LU factorization for A
-    p_x = np.concatenate(([1.0], point))
-    lu, piv = la.lu_factor(A, overwrite_a=True, check_finite=False)
-    c = la.lu_solve((lu, piv), p_x, overwrite_b=True, check_finite=False)
-    phi = c @ p.T * w
-    return phi
-
-def shapeFunctions1(point, nodes, weightFunction, support):
-    """Compute shape function at quad point for all nodes in its support.
-    Basis used is linear basis pT = [1 x y].
-    Computes the shape function value and its gradient.
-
-    Parameters
-    ----------
-    point : numpy.array([x,y], dtype='float64')
-        Coordinate of evaluation point.
-    nodes : nx2 numpy.ndarray, dtype='float64'
-        Coordinates of nodes within support of given evaluation point.
-
-    Returns
-    -------
-    phi : numpy.array([...], dtype='float64')
-        Values of phi for all nodes in indices.
-    gradphi : nx2 numpy.ndarray, dtype='float64'
-        Gradients of phi for all nodes in indices. [[dx1,dy1],[dx2,dy2]...]
-
-    """
-    # --------------------------------------
-    #     compute the moment matrix A(x)
-    # --------------------------------------
-    displacement = (point - nodes)/support
-    distance = np.array(la.norm(displacement, axis=-1))
-    w, dwdr = weightFunction.dw(distance)
-    i0 = distance > 1e-14
-    gradr = np.full(nodes.shape, np.sqrt(0.5)/support, dtype='float64')
-    gradr[i0] = displacement[i0] / \
-                (distance[i0]*support).reshape((-1,1))
-    gradw = dwdr.reshape((-1,1)) * gradr
-    p = np.hstack((np.ones((len(nodes),1)), nodes))
-    A = w*p.T@p
-    dAdx = gradw[:,0]*p.T@p
-    dAdy = gradw[:,1]*p.T@p
-    # --------------------------------------
-    #         compute  matrix c(x)
-    # --------------------------------------
-    # A(x)c(x)   = p(x)
-    # A(x)c_k(x) = b_k(x)
-    # Backward substitutions, once for c(x), twice for c_k(x) k=1,2
-    # Using LU factorization for A
-    p_x = np.concatenate(([1.0], point))
-    lu, piv = la.lu_factor(A, check_finite=False)
-    c = np.empty((3,3), dtype='float64')
-    c[0] = la.lu_solve((lu, piv), p_x, check_finite=False)
-    c[1] = la.lu_solve((lu, piv),([0,1,0] - dAdx@c[0]), check_finite=False)
-    c[2] = la.lu_solve((lu, piv),([0,0,1] - dAdy@c[0]), check_finite=False)
-    # --------------------shapeFunctions1------------------
-    #       compute phi and gradphi
-    # --------------------------------------
-    cpi = c[0] @ p.T
-    phi = cpi * w
-    gradphi = ( c[1:3]@p.T*w + cpi*gradw.T).T
-    return phi, gradphi
-
-def shapeFunctions2(point, nodes, weightFunction, support):
-    """Compute shape function at quad point for all nodes in its support.
-    Basis used is linear basis pT = [1 x y].
-    Computes the shape function value and its 2nd derivatives.
-
-    Parameters
-    ----------
-    point : numpy.array([x,y], dtype='float64')
-        Coordinate of evaluation point.
-    nodes : nx2 numpy.ndarray, dtype='float64'
-        Coordinates of nodes within support of given evaluation point.
-
-    Returns
-    -------
-    phi : numpy.array([...], dtype='float64')
-        Values of phi for all nodes in indices.
-    grad2phi : nx2 numpy.ndarray, dtype='float64'
-        2nd derivatives of phi for all nodes in indices.
-        [[dxx1,dyy1],[dxx2,dyy2]...]
-
-    """
-    # --------------------------------------
-    #     compute the moment matrix A(x)
-    # --------------------------------------
-    displacement = (point - nodes)/support
-    distance = np.array(la.norm(displacement, axis=-1))
-    w, dwdr, d2wdr2 = weightFunction.dw2(distance)
-    i0 = distance > 1e-14
-    gradr = np.full(nodes.shape, np.sqrt(0.5)/support, dtype='float64')
-    gradr[i0] = displacement[i0] / \
-                (distance[i0]*support).reshape((-1,1))
-    gradw = dwdr.reshape((-1,1)) * gradr
-    grad2w = d2wdr2.reshape((-1,1)) * gradr*gradr
-    p = np.hstack((np.ones((len(nodes),1)), nodes))
-    A = w*p.T@p
-    dAdx = gradw[:,0]*p.T@p
-    dAdy = gradw[:,1]*p.T@p
-    d2Adx2 = grad2w[:,0]*p.T@p
-    d2Ady2 = grad2w[:,1]*p.T@p
-    # --------------------------------------
-    #         compute  matrix c(x)
-    # --------------------------------------
-    # A(x)c(x)   = p(x)
-    # A(x)c_k(x) = b_k(x)
-    # Backward substitutions, once for c(x), twice for c_k(x) k=1,2
-    # and twice for c_kk(x) k=1,2, using LU factorization for A
-    p_x = np.concatenate(([1.0], point))
-    lu, piv = la.lu_factor(A, check_finite=False)
-    c = np.empty((5,3), dtype='float64')
-    c[0] = la.lu_solve((lu, piv), p_x, check_finite=False)
-    c[1] = la.lu_solve((lu, piv),([0,1,0] - dAdx@c[0]), check_finite=False)
-    c[2] = la.lu_solve((lu, piv),([0,0,1] - dAdy@c[0]), check_finite=False)
-    c[3] = la.lu_solve((lu, piv),(-2.0*dAdy@c[1] - d2Adx2@c[0]), check_finite=False)
-    c[4] = la.lu_solve((lu, piv),(-2.0*dAdy@c[2] - d2Ady2@c[0]), check_finite=False)
-    # --------------------------------------
-    #       compute phi and gradphi
-    # --------------------------------------
-    cpi = c[0] @ p.T
-    phi = cpi * w
-    grad2phi = ( c[3:5]@p.T*w + 2.0*c[1:3]@p.T*gradw.T + cpi*grad2w.T ).T
-    return phi, grad2phi
-
-
-class shapeFunction(object):
-    def phi(self, point):
-        pass
+    @abstractmethod
+    def p(self, point): pass
     
-    def dphi(self, point):
-        pass
+    @abstractmethod
+    def dp(self, point): pass
+
+    def __init__(self, ndim, size):
+        self.ndim = ndim
+        self.size = size
+
+    def __call__(self, point):
+        return self.p(point)
+
+class LinearBasis(Basis):
+    @property
+    def name(self):
+        return 'linear'
     
-    def d2phi(self, point):
-        pass
+    def __init__(self, ndim = 2):
+        super().__init__(ndim, ndim + 1)
+        self._dp = np.hstack((np.zeros((ndim,1)),np.eye(ndim)))
+
+    def p(self, point):
+        point.shape = (-1, self.ndim)
+        return np.hstack((np.ones((len(point),1)), point))
+    
+    def dp(self, point=None):
+        return self._dp
+
+class QuadraticBasis(Basis):
+    @property
+    def name(self):
+        return 'quadratic'
+    
+    def __init__(self, ndim = 2):
+        super().__init__(ndim, ndim + 1 + comb(ndim, 2, True, True))
+        self.dpLinear = np.hstack((np.zeros((ndim,1)),np.eye(ndim)))
+
+    def p(self, point):
+        point.shape = (-1, self.ndim)
+        return np.hstack( ( np.ones((len(point),1)), point,
+            np.apply_along_axis(lambda a :
+                np.outer(a,a)[np.triu_indices(self.ndim)], 1, point) ) )
+    
+    def dp(self, point=None):
+        return self._dp
 
 
 class WeightFunction(metaclass=ABCMeta):
@@ -192,7 +80,7 @@ class WeightFunction(metaclass=ABCMeta):
     def dw(self, r): pass
     
     @abstractmethod
-    def dw2(self, r): pass
+    def d2w(self, r): pass
 
 class CubicSpline(WeightFunction):
     @property
@@ -233,7 +121,7 @@ class CubicSpline(WeightFunction):
 
         Parameters
         ----------
-        r : numpy.array([...], dtype='float64')
+        r : nieeetrumpy.array([...], dtype='float64')
             Distances from evaluation points to node point.
 
         Returns
@@ -262,7 +150,7 @@ class CubicSpline(WeightFunction):
             dwdr[i1] = -4.0 + 8.0*r1 - 4.0*r2
         return w, dwdr
     
-    def dw2(self, r):
+    def d2w(self, r):
         """Compute cubic spline function and its radial derivatives.
 
         Parameters
@@ -358,7 +246,7 @@ class QuarticSpline(WeightFunction):
             dwdr[i0] = -12.0*r1 + 24.0*r2 - 12.0*r3
         return w, dwdr
     
-    def dw2(self, r):
+    def d2w(self, r):
         """Compute quartic spline function and radial derivative values.
 
         Parameters
@@ -445,7 +333,7 @@ class Gaussian(WeightFunction):
             dwdr[i0] = -18.0*r1*np.exp(-9.0*r2) * c2
         return w, dwdr
     
-    def dw2(self, r):
+    def d2w(self, r):
         """Compute Gaussian function and radial derivative values.
 
         Parameters
@@ -530,6 +418,8 @@ class MlsSim(metaclass=ABCMeta):
                 self.support = 1.5/N
         self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
         self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
+        self.ndim = 2
+        self.basis = LinearBasis(self.ndim)
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N}," \
@@ -608,6 +498,164 @@ class MlsSim(metaclass=ABCMeta):
         else:
             print(f"Error: unkown spline form '{form}'. "
                   f"Must be one of 'cubic', 'quartic', or 'gaussian'.")
+    
+    def phi(self, point, nodes):
+        """Compute shape function at quad point for all nodes in its support.
+        Computes the shape function value only (no derivatives).
+    
+        Parameters
+        ----------
+        point : numpy.array([x,y], dtype='float64')
+            Coordinate of evaluation point.
+        nodes : nx2 numpy.ndarray, dtype='float64'
+            Coordinates of nodes within support of given evaluation point.
+    
+        Returns
+        -------
+        phi : numpy.array([...], dtype='float64')
+            Values of phi for all nodes in indices.
+    
+        """
+        # --------------------------------------
+        #     compute the moment matrix A(x)
+        # --------------------------------------
+        distances = la.norm(point - nodes, axis=-1)/self.support
+        w = self.weightFunction.w(distances)
+        p = self.basis(nodes)
+        A = w*p.T@p
+        # --------------------------------------
+        #      compute vector c(x) and phi
+        # --------------------------------------
+        # A(x)c(x) = p(x)
+        # Backward substitution for c(x) using LU factorization for A
+        p_x = self.basis(point)[0]
+        lu, piv = la.lu_factor(A, overwrite_a=True, check_finite=False)
+        c = la.lu_solve((lu, piv), p_x, overwrite_b=True, check_finite=False)
+        phi = c @ p.T * w
+        return phi
+    
+    def dphi(self, point, nodes):
+        """Compute shape function at quad point for all nodes in its support.
+        Computes the shape function value and its gradient.
+    
+        Parameters
+        ----------
+        point : numpy.array([x,y], dtype='float64')
+            Coordinate of evaluation point.
+        nodes : nx2 numpy.ndarray, dtype='float64'
+            Coordinates of nodes within support of given evaluation point.
+    
+        Returns
+        -------
+        phi : numpy.array([...], dtype='float64')
+            Values of phi for all nodes in indices.
+        gradphi : nx2 numpy.ndarray, dtype='float64'
+            Gradients of phi for all nodes in indices. [[dx1,dy1],[dx2,dy2]...]
+    
+        """
+        # --------------------------------------
+        #     compute the moment matrix A(x)
+        # --------------------------------------
+        displacement = (point - nodes)/self.support
+        distance = np.array(la.norm(displacement, axis=-1))
+        w, dwdr = self.weightFunction.dw(distance)
+        i0 = distance > 1e-14
+        gradr = np.full(nodes.shape, np.sqrt(1.0/self.ndim)/self.support,
+                        dtype='float64')
+        gradr[i0] = displacement[i0] / \
+                    (distance[i0]*self.support).reshape((-1,1))
+        gradw = dwdr.reshape((-1,1)) * gradr
+        p = self.basis(nodes)
+        A = w*p.T@p
+        dA = [gradw[:,i]*p.T@p for i in range(self.ndim)]
+        # --------------------------------------
+        #         compute matrix c
+        # --------------------------------------
+        # A(x)c(x)   = p(x)
+        # A(x)c_k(x) = b_k(x)
+        # Backward substitutions, once for c(x), twice for c_k(x) k=1,2
+        # Using LU factorization for A
+        p_x = self.basis(point)[0]
+        lu, piv = la.lu_factor(A, check_finite=False)
+        c = np.empty((self.ndim + 1, self.basis.size), dtype='float64')
+        c[0] = la.lu_solve((lu, piv), p_x, check_finite=False)
+        for i in range(self.ndim):
+            c[i+1] = la.lu_solve( (lu, piv),
+                                  (self.basis.dp(point)[i] - dA[i]@c[0]),
+                                  check_finite=False )
+        # --------------------------------------
+        #       compute phi and gradphi
+        # --------------------------------------
+        cpi = c[0] @ p.T
+        phi = cpi * w
+        gradphi = ( c[1 : self.ndim + 1]@p.T*w + cpi*gradw.T).T
+        return phi, gradphi
+    
+    def d2phi(self, point, nodes):
+        """Compute shape function at quad point for all nodes in its support.
+        Basis used is linear basis pT = [1 x y].
+        Computes the shape function value and its 2nd derivatives.
+    
+        Parameters
+        ----------
+        point : numpy.array([x,y], dtype='float64')
+            Coordinate of evaluation point.
+        nodes : nx2 numpy.ndarray, dtype='float64'
+            Coordinates of nodes within support of given evaluation point.
+    
+        Returns
+        -------
+        phi : numpy.array([...], dtype='float64')
+            Values of phi for all nodes in indices.
+        grad2phi : nx2 numpy.ndarray, dtype='float64'
+            2nd derivatives of phi for all nodes in indices.
+            [[dxx1,dyy1],[dxx2,dyy2]...]
+    
+        """
+        # --------------------------------------
+        #     compute the moment matrix A(x)
+        # --------------------------------------
+        displacement = (point - nodes)/self.support
+        distance = np.array(la.norm(displacement, axis=-1))
+        w, dwdr, d2wdr2 = self.weightFunction.d2w(distance)
+        i0 = distance > 1e-14
+        gradr = np.full(nodes.shape, np.sqrt(1.0/self.ndim)/self.support,
+                        dtype='float64')
+        gradr[i0] = displacement[i0] / \
+                    (distance[i0]*self.support).reshape((-1,1))
+        gradw = dwdr.reshape((-1,1)) * gradr
+        grad2w = d2wdr2.reshape((-1,1)) * gradr*gradr
+        p = self.basis(nodes)
+        A = w*p.T@p
+        dA = [gradw[:,i]*p.T@p for i in range(self.ndim)]
+        d2A = [grad2w[:,i]*p.T@p for i in range(self.ndim)]
+        # --------------------------------------
+        #         compute  matrix c(x)
+        # --------------------------------------
+        # A(x)c(x)   = p(x)
+        # A(x)c_k(x) = b_k(x)
+        # Backward substitutions, once for c(x), twice for c_k(x) k=1,2
+        # and twice for c_kk(x) k=1,2, using LU factorization for A
+        p_x = self.basis(point)[0]
+        lu, piv = la.lu_factor(A, check_finite=False)
+        c = np.empty((2*self.ndim + 1, self.basis.size), dtype='float64')
+        c[0] = la.lu_solve((lu, piv), p_x, check_finite=False)
+        for i in range(self.ndim):
+            c[i+1] = la.lu_solve( (lu, piv),
+                                  (self.basis.dp(point)[i] - dA[i]@c[0]),
+                                  check_finite=False )
+            c[i+1+self.ndim] = la.lu_solve( (lu, piv),
+                                            (-2.0*dA[i]@c[i+1] - d2A[i]@c[0]),
+                                            check_finite=False )
+        # --------------------------------------
+        #       compute phi and gradphi
+        # --------------------------------------
+        cpi = c[0] @ p.T
+        phi = cpi * w
+        grad2phi = ( c[self.ndim + 1 : 2*self.ndim + 1]@p.T*w + 
+                     2.0*c[1 : self.ndim + 1]@p.T*gradw.T + 
+                     cpi*grad2w.T ).T
+        return phi, grad2phi
     
     def defineSupport(self, point):
         """Find nodes within support of a given evaluation point.

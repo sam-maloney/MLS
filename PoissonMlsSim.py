@@ -120,8 +120,7 @@ class PoissonMlsSim(mls.MlsSim):
         for iQ, quad in enumerate(self.quads):
             indices = self.defineSupport(quad)
             nEntries = len(indices)**2
-            phi, gradphi = mls.shapeFunctions1(quad, self.nodes[indices],
-                                             self.weightFunction, self.support)
+            phi, gradphi = self.dphi(quad, self.nodes[indices])
             data[index:index+nEntries] = np.ravel(gradphi@gradphi.T)
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
@@ -142,8 +141,7 @@ class PoissonMlsSim(mls.MlsSim):
         for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
             indices = self.defineSupport(node)
             nEntries = len(indices)
-            phi = mls.shapeFunctions0(node, self.nodes[indices],
-                                      self.weightFunction, self.support)
+            phi = self.phi(node, self.nodes[indices])
             data[index:index+nEntries] = -1.0*phi
             row_ind[index:index+nEntries] = indices
             col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
@@ -175,12 +173,10 @@ class PoissonMlsSim(mls.MlsSim):
             indptr[iN] = index
             indices[index:index+nEntries] = inds
             if (self.isBoundaryNode[iN]):
-                phi = mls.shapeFunctions0(node, self.nodes[inds],
-                                          self.weightFunction, self.support)
+                phi = self.phi(node, self.nodes[inds])
                 data[index:index+nEntries] = phi
             else:
-                phi, d2phi = mls.shapeFunctions2(node, self.nodes[inds],
-                                             self.weightFunction, self.support)
+                phi, d2phi = self.d2phi(node, self.nodes[inds])
                 data[index:index+nEntries] = d2phi.sum(axis=1)
             index += nEntries
         indptr[-1] = index
@@ -250,8 +246,7 @@ class PoissonMlsSim(mls.MlsSim):
         self.u = np.empty(self.nNodes, dtype='float64')
         for iN, node in enumerate(self.nodes):
             indices = self.defineSupport(node)
-            phi = mls.shapeFunctions0(node, self.nodes[indices],
-                                      self.weightFunction, self.support)
+            phi = self.phi(node, self.nodes[indices])
             self.u[iN] = uTmp[indices]@phi
             
     def cond(self, order=2, preconditioned=True):
