@@ -53,6 +53,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         None.
     
         """
+        self.ndim = 2
         self.nNodes = N*N
         self.nodes = np.indices((N, N), dtype='float64').reshape(2,-1).T / N
         super().__init__(N, **kwargs)
@@ -164,7 +165,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             indices = self.defineSupport(quad)
             nEntries = len(indices)**2
             phi, gradphi = self.dphi(quad, self.nodes[indices])
-            Kdata[index:index+nEntries] = np.ravel(gradphi@gradphi.T)
+            Kdata[index:index+nEntries] = np.ravel(
+                gradphi @ (self.diffusivity @ gradphi.T) )
             Adata[index:index+nEntries] = np.ravel(
                 np.outer(np.dot(gradphi, self.velocity), phi) )
             Mdata[index:index+nEntries] = np.ravel(np.outer(phi, phi))
@@ -185,15 +187,15 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                                 shape=(self.nNodes, self.nNodes) )
         self.M = sp.csr_matrix( (Mdata[M_inds], (row_ind[M_inds], col_ind[M_inds])),
                                 shape=(self.nNodes, self.nNodes) )
-        self.K *= -self.quadWeight*self.diffusivity
+        self.K *= -self.quadWeight
         self.A *= self.quadWeight
         self.M *= self.quadWeight
         self.KA = self.K + self.A
     
     def step(self, nSteps = 1, **kwargs):
         info = 0
-        betas = np.array([0.25, 1.0/3.0, 0.5, 1.0], dtype='float64')
-        # betas = np.array([1.0], dtype='float64')
+        betas = np.array([0.25, 1.0/3.0, 0.5, 1.0], dtype='float64') ## RK4 ##
+        # betas = np.array([1.0], dtype='float64') ## Forward Euler ##
         for i in range(nSteps):
             uTemp = self.uI
             for beta in betas:

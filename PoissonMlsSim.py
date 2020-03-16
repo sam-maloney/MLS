@@ -56,6 +56,7 @@ class PoissonMlsSim(mls.MlsSim):
         None.
     
         """
+        self.ndim = 2
         self.nNodes = (N+1)*(N+1)
         self.nodes = ( np.indices((N+1, N+1), dtype='float64')
                        .reshape(2,-1).T ) / N

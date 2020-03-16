@@ -32,21 +32,26 @@ def hat(points):
 # N is the number of grid cells along one dimension,
 # therefore the number of nodes equals N*N
 N = 30
-dt = 0.1
-velocity = np.array([0.1, 0.1], dtype='float64')
-diffusivity = 0.0
-print(f'N = {N}\ndt = {dt}\nvelocity = {velocity}\ndiffusivity = {diffusivity}')
+dt = 0.01
+velocity = np.array([0., 0.], dtype='float64')
+theta = np.pi/4
+diffusivity = 0.01*np.array([[np.cos(theta)**2, np.sin(theta)*np.cos(theta)],
+                             [np.sin(theta)*np.cos(theta), np.sin(theta)**2]])
+print(f'N = {N}\ndt = {dt}\n'
+      f'velocity = {velocity}\n'
+      f'diffusivity =\n{diffusivity}')
 
 kwargs={
     'N' : N,
     'dt' : dt,
-    'u0' : hat,
+    'u0' : gaussian,
     'velocity' : velocity,
     'diffusivity' : diffusivity,
     'Nquad' : 2,
     'support' : 1.9,
     'form' : 'cubic',
-    'quadrature' : 'gaussian' }
+    'quadrature' : 'uniform',
+    'basis' : 'linear'}
 
 precon='ilu'
 tolerance = 1e-10
@@ -67,6 +72,7 @@ mlsSim.computeSpatialDiscretization()
 
 current_time = default_timer()
 print(f'Set-up time = {current_time-start_time} s')
+print('Condition Number =', mlsSim.cond('fro'))
 
 # M = mlsSim.M.A
 # K = mlsSim.K.A
@@ -75,7 +81,7 @@ print(f'Set-up time = {current_time-start_time} s')
 
 start_time = default_timer()
 
-mlsSim.step(100, tol=tolerance, atol=tolerance)
+mlsSim.step(200, tol=tolerance, atol=tolerance)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')

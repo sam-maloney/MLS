@@ -40,7 +40,7 @@ class LinearBasis(Basis):
     
     def __init__(self, ndim = 2):
         super().__init__(ndim, ndim + 1)
-        self._dp = np.hstack((np.zeros((ndim,1)),np.eye(ndim)))
+        self._dp = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
 
     def p(self, point):
         point.shape = (-1, self.ndim)
@@ -56,16 +56,39 @@ class QuadraticBasis(Basis):
     
     def __init__(self, ndim = 2):
         super().__init__(ndim, ndim + 1 + comb(ndim, 2, True, True))
-        self.dpLinear = np.hstack((np.zeros((ndim,1)),np.eye(ndim)))
+        self.dpLinear = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
 
     def p(self, point):
         point.shape = (-1, self.ndim)
-        return np.hstack( ( np.ones((len(point),1)), point,
-            np.apply_along_axis(lambda a :
-                np.outer(a,a)[np.triu_indices(self.ndim)], 1, point) ) )
+        if self.ndim == 1:
+            return np.hstack((np.ones((len(point),1)), point, point**2))
+        elif self.ndim == 2:
+            x = point[:,0:1]
+            y = point[:,1:2]
+            return np.hstack((np.ones((len(point),1)), point, x**2, x*y, y**2))
+        elif self.ndim == 3:
+            x = point[:,0:1]
+            y = point[:,1:2]
+            z = point[:,2:3]
+            return np.hstack((np.ones((len(point),1)), point,
+                              x**2, x*y, x*z, y**2, y*z, z**2))
     
     def dp(self, point=None):
-        return self._dp
+        point.shape = (2,)
+        if self.ndim == 1:
+            return np.hstack((self.dpLinear,[2*point[0]]))
+        elif self.ndim == 2:
+            x = point[0]
+            y = point[1]
+            return np.hstack((self.dpLinear,[[2*x, y,  0 ],
+                                             [ 0 , x, 2*y]]))
+        elif self.ndim == 3:
+            x = point[0]
+            y = point[1]
+            z = point[2]
+            return np.hstack((self.dpLinear,[[2*x, y, z,  0 , 0,  0 ],
+                                             [ 0 , x, 0, 2*y, z,  0 ],
+                                             [ 0 , 0, x,  0 , y, 2*z]]))
 
 
 class WeightFunction(metaclass=ABCMeta):
@@ -402,7 +425,8 @@ class MlsSim(metaclass=ABCMeta):
         The default is 'gaussian'.
     """
     
-    def __init__(self, N, Nquad=2, support=-1, form='cubic', **kwargs):
+    def __init__(self, N, Nquad=2, support=-1, form='cubic', basis='linear',
+                 **kwargs):
         self.N = N
         self.nCells = N*N
         self.Nquad = Nquad
@@ -418,8 +442,7 @@ class MlsSim(metaclass=ABCMeta):
                 self.support = 1.5/N
         self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
         self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
-        self.ndim = 2
-        self.basis = LinearBasis(self.ndim)
+        self.selectBasis(basis)
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N}," \
@@ -475,9 +498,9 @@ class MlsSim(metaclass=ABCMeta):
         
         Parameters
         ----------
-        form : string
-            Form of the spline used for the kernel weighting function.
-            Must be either 'cubic', 'quartic', or 'gaussian'.
+        form : {string, WeightFunction}
+            Form of the kernel weighting function, or WeightFunction object.
+            If a string, it must be one of 'cubic', 'quartic', or 'gaussian'.
 
         Returns
         -------
@@ -498,6 +521,32 @@ class MlsSim(metaclass=ABCMeta):
         else:
             print(f"Error: unkown spline form '{form}'. "
                   f"Must be one of 'cubic', 'quartic', or 'gaussian'.")
+    
+    def selectBasis(self, name):
+        """Register the 'self.basis' object to the correct basis set.
+        
+        Parameters
+        ----------
+        name : {string, Basis}
+            Name of the basis used for the shape functions, or Basis object.
+            If a string, it must be either 'linear' or 'quadratic'.
+
+        Returns
+        -------
+        None.
+
+        """
+        if isinstance(name, Basis):
+            self.basis = name
+            return
+        name = name.lower()
+        if name == 'linear':
+            self.basis = LinearBasis(self.ndim)
+        elif name == 'quadratic':
+            self.basis = QuadraticBasis(self.ndim)
+        else:
+            print(f"Error: unkown basis name '{name}'. "
+                  f"Must be either 'linear' or 'quadratic'.")
     
     def phi(self, point, nodes):
         """Compute shape function at quad point for all nodes in its support.

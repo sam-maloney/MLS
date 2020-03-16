@@ -10,23 +10,51 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from MlsSim import MlsSim
+from ConvectionDiffusionMlsSim import ConvectionDiffusionMlsSim
 
-def g(points):
-    k = 1
-    return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
+def gaussian(points):
+    A = 1.0
+    x0 = 0.5
+    y0 = 0.5
+    xsigma = 0.15
+    ysigma = 0.15
+    return np.exp(-0.5*A*( (points[:,0] - x0)**2/xsigma**2 + 
+                           (points[:,1] - y0)**2/ysigma**2 ) )
 
-n=5
-mls = MlsSim(n-1, g=g, support=2, form='cubic')
+def hat(points):
+    return np.hstack((points > 0.25, points < 0.75)).all(1).astype('float64')
 
-N = 64
+n = 3
+dt = 0.1
+velocity = np.array([0.1, 0.1], dtype='float64')
+diffusivity = 0.0
+
+kwargs={
+    'N' : n,
+    'dt' : dt,
+    'u0' : gaussian,
+    'velocity' : velocity,
+    'diffusivity' : diffusivity,
+    'Nquad' : 2,
+    'support' : 3,
+    'form' : 'cubic',
+    'quadrature' : 'gaussian' }
+
+precon='ilu'
+tolerance = 1e-10
+    
+# Initialize simulation
+mls = ConvectionDiffusionMlsSim(**kwargs)
+# mls.computeSpatialDiscretization()
+
+N = 16
 points = ( np.indices((N+1, N+1), dtype='float64').T.reshape(-1,2) ) / N
-indices = np.arange(mls.nNodes, dtype = 'uint32')
+    
+phi_tmp = np.apply_along_axis(mls.phi, 1, points, mls.nodes)
 
 phis = np.empty((len(points), mls.nNodes), dtype='float64')
-
-for i, point in enumerate(points):
-    phis[i] = mls.shapeFunctions0(point, indices)
+for i in range(mls.nNodes):
+    phis[:,i] = np.sum(phi_tmp[:,mls.periodicIndices == i], axis=1)
 
 # clear the current figure, if opened, and set parameters
 fig = plt.gcf()
@@ -38,12 +66,12 @@ mpl.rc('ytick', labelsize='large')
 plt.subplots_adjust(hspace = 0.3, wspace = 0.2)
 
 # subplots = [337, 338, 339, 334, 335, 336, 331, 332, 333]
-subplots = [447, 448, 449, 444, 445, 446, 441, 442, 443]
+# subplots = [447, 448, 449, 444, 445, 446, 441, 442, 443]
 
-for i in range(n):
-    for j in range(n):
+for j in range(n):
+    for i in range(n):
         # plot the result
-        plt.subplot(n,n,n*n-(i+1)*n+j+1)
+        plt.subplot(n,n,n*n-(j+1)*n+i+1)
         plt.tripcolor(points[:,0], points[:,1], phis[:,i*n+j], shading='gouraud'
                       # , vmax=1.0
                       , vmin=0.0)
@@ -65,4 +93,4 @@ for i in range(n):
         # plt.yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
         plt.margins(0,0)
 
-plt.savefig('MLS_shape_functions5.pdf', bbox_inches='tight', pad_inches=0)
+# plt.savefig('MLS_shape_functions5.pdf', bbox_inches='tight', pad_inches=0)

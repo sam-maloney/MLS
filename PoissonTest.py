@@ -24,10 +24,11 @@ def g(points):
             
 kwargs={
     'Nquad' : 2,
-    'support' : -1,
+    'support' : 2.5,
     'form' : 'cubic',
-    'method' : 'collocation',
-    'quadrature' : 'gaussian' }
+    'method' : 'galerkin',
+    'quadrature' : 'gaussian',
+    'basis' : 'quadratic'}
 
 precon='ilu'
 tolerance = 1e-10
@@ -67,14 +68,13 @@ for iN, N in enumerate(N_array):
     
     print('max error =', E_inf[iN])
     print('L2 error  =', E_2[iN])
-    print(f'Elapsed time = {end_time-start_time} s')
+    print(f'Elapsed time = {end_time-start_time} s\n')
     
 ##### End of loop over N #####
 
-print(f'min(E_2) = {np.min(E_2)}')
 print(f'min(E_inf) = {np.min(E_inf)}')
+print(f'min(E_2)   = {np.min(E_2)}')
 
-    
     
 ##### Begin Plotting Routines #####
 
