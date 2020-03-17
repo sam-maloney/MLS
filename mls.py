@@ -440,8 +440,6 @@ class MlsSim(metaclass=ABCMeta):
                 self.support = 1.9/N
             else: # if form is unkown
                 self.support = 1.5/N
-        self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
-        self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
         self.selectBasis(basis)
     
     def __repr__(self):
@@ -465,33 +463,31 @@ class MlsSim(metaclass=ABCMeta):
         self.quadrature = quadrature.lower()
         if quadrature.lower() not in ['uniform', 'gaussian']:
             print(f"Error: bad quadrature distribution of '{quadrature}'. "
-                  f"Must be either 'uniform' or 'gaussian'.")
+                  f"Must be either 'uniform' or 'gaussian'. "
+                  f"Defaulting to 'uniform'.")
         NquadN = self.Nquad*self.N
         if (self.Nquad <= 0) and not float(self.Nquad).is_integer():
-            print(f"Error: bad Nquad value of '{self.Nquad}'. "
-                  f"Must be an integer greater than 0.")
-            return
+            raise SystemExit(f"Bad Nquad value of '{self.Nquad}'. "
+                             f"Must be an integer greater than 0.")
         if self.Nquad == 1:
-            self.quads = ( np.indices((self.N, self.N), dtype='float64')
-                           .T.reshape(-1,2) + 0.5 ) / self.N
+            self.quads = ( np.indices(np.repeat(self.N, self.ndim),
+                dtype='float64').T.reshape(-1,self.ndim) + 0.5 ) / self.N
         elif quadrature.lower() == 'gaussian' and self.Nquad == 2:
-            tmp = ( np.indices((self.N, self.N), dtype='float64')
-                           .T.reshape(-1,2) + 0.5 ) / self.N
             offset = 0.5/(np.sqrt(3.0)*self.N)
-            self.quads = np.concatenate((
-                tmp - offset,
-                tmp + offset,
-                np.hstack((tmp[:,0:1] + offset, tmp[:,1:2] - offset)),
-                np.hstack((tmp[:,0:1] - offset, tmp[:,1:2] + offset)) ))
+            tmp = ( np.indices(np.repeat(self.N, self.ndim), dtype='float64')
+                    .T.reshape(-1,self.ndim) + 0.5 ) / self.N - offset
+            for i in range(self.ndim):
+                tmp = np.concatenate((
+                    tmp, tmp + 2.0*offset*np.eye(self.ndim)[i] ))
+            self.quads = tmp
         elif quadrature.lower() == 'gaussian':
-            print(f"Error: bad Nquad value of '{self.Nquad}'. "
-                  f"Must be either 1 or 2 for 'gaussian' quadrature.")
-            return
+            raise SystemExit(f"Bad Nquad value of '{self.Nquad}'. Must be "
+                             f"either 1 or 2 for 'gaussian' quadrature.")
         else: ##### Uniform quadrature for Nquad > 1 #####
-            self.quads = np.indices((NquadN,NquadN)).T.reshape(-1,2) / \
-                (NquadN)+1/(2*NquadN)
-        self.quadWeight = 1.0/(NquadN*NquadN)
+            self.quads = ( np.indices(np.repeat(NquadN, self.ndim))
+                           .T.reshape(-1,self.ndim) ) / NquadN + 1.0/(2*NquadN)
         self.nQuads = len(self.quads)
+        self.quadWeight = 1.0/self.nQuads
     
     def selectWeightFunction(self, form):
         """Register the 'self.weightFunction' object to the correct kernel.
@@ -519,8 +515,9 @@ class MlsSim(metaclass=ABCMeta):
         elif self.form == 'gaussian':
             self.weightFunction = Gaussian()
         else:
-            print(f"Error: unkown spline form '{form}'. "
-                  f"Must be one of 'cubic', 'quartic', or 'gaussian'.")
+            raise SystemExit(f"Unkown spline form '{form}'. Must be one of "
+                             f"'cubic', 'quartic', or 'gaussian' or an "
+                             f"obect derived from mls.WeightFunction.")
     
     def selectBasis(self, name):
         """Register the 'self.basis' object to the correct basis set.
@@ -545,8 +542,8 @@ class MlsSim(metaclass=ABCMeta):
         elif name == 'quadratic':
             self.basis = QuadraticBasis(self.ndim)
         else:
-            print(f"Error: unkown basis name '{name}'. "
-                  f"Must be either 'linear' or 'quadratic'.")
+            raise SystemExit(f"Unkown basis name '{name}'. Must be either "
+                "'linear' or 'quadratic' or an object derived from mls.Basis.")
     
     def phi(self, point, nodes):
         """Compute shape function at quad point for all nodes in its support.

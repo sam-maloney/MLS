@@ -28,7 +28,7 @@ kwargs={
     'form' : 'cubic',
     'method' : 'galerkin',
     'quadrature' : 'gaussian',
-    'basis' : 'quadratic'}
+    'basis' : 'linear'}
 
 precon='ilu'
 tolerance = 1e-10

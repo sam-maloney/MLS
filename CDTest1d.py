@@ -19,12 +19,10 @@ warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
             
 def gaussian(points):
     A = 1.0
-    x0 = 0.5
-    y0 = 0.5
-    xsigma = 0.15
-    ysigma = 0.15
-    return np.exp(-0.5*A*( (points[:,0] - x0)**2/xsigma**2 + 
-                           (points[:,1] - y0)**2/ysigma**2 ) )
+    ndim = points.shape[1]
+    r0 = (0.5, 0.5, 0.5)[0:ndim]
+    sigma = (0.15, 0.15, 0.15)[0:ndim]
+    return np.exp( -0.5*A*np.sum(((points - r0)/sigma )**2, 1) )
 
 def hat(points):
     return np.hstack((points > 0.25, points < 0.75)).all(1).astype('float64')
@@ -33,10 +31,10 @@ def hat(points):
 # therefore the number of nodes equals N*N
 N = 30
 dt = 0.01
-velocity = np.array([0., 0.], dtype='float64')
-theta = np.pi/4
-diffusivity = 0.01*np.array([[np.cos(theta)**2, np.sin(theta)*np.cos(theta)],
-                             [np.sin(theta)*np.cos(theta), np.sin(theta)**2]])
+velocity = 0.1
+diffusivity = 0.0
+# diffusivity = np.array([[0.01]], dtype='float64')
+# velocity = np.array([0.1], dtype='float64')
 print(f'N = {N}\ndt = {dt}\n'
       f'velocity = {velocity}\n'
       f'diffusivity =\n{diffusivity}')
@@ -47,13 +45,13 @@ kwargs={
     'u0' : gaussian,
     'velocity' : velocity,
     'diffusivity' : diffusivity,
+    'ndim' : 1,
     'Nquad' : 2,
     'support' : 1.9,
     'form' : 'cubic',
-    'quadrature' : 'uniform',
+    'quadrature' : 'gaussian',
     'basis' : 'linear'}
 
-precon='ilu'
 tolerance = 1e-10
 
 # # allocate arrays for convergence testing
@@ -81,7 +79,7 @@ print('Condition Number =', mlsSim.cond('fro'))
 
 start_time = default_timer()
 
-mlsSim.step(200, tol=tolerance, atol=tolerance)
+mlsSim.step(1000, tol=tolerance, atol=tolerance)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')
@@ -104,7 +102,7 @@ print('L2 error  =', E_2)
     
 #     print(f'Simulation time = {current_time-start_time} s')
     
-# ##### End of loop over timesteps #####
+##### End of loop over timesteps #####
 
     
     
@@ -121,30 +119,22 @@ mpl.rc('ytick', labelsize='large')
 
 # plot the result
 plt.subplot(121)
-plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1],
-              mlsSim.u[mlsSim.periodicIndices], shading='gouraud')
+plt.plot(mlsSim.nodes, mlsSim.u[mlsSim.periodicIndices])
 plt.xlim(0.0, 1.0)
 plt.ylim(0.0, 1.0)
-plt.colorbar()
 plt.xlabel(r'$x$')
-plt.ylabel(r'$y$')
+plt.ylabel(r'$u$')
 plt.title('Final MLS solution')
 plt.margins(0,0)
 
 # # plot error
 difference = mlsSim.u - u_exact
 plt.subplot(122)
-plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1],
-              difference[mlsSim.periodicIndices],
-              shading='gouraud',
-              cmap='seismic',
-              vmin=-np.max(np.abs(difference)),
-              vmax=np.max(np.abs(difference)))
+plt.plot(mlsSim.nodes, difference[mlsSim.periodicIndices])
 plt.xlim(0.0, 1.0)
-plt.ylim(0.0, 1.0)
-plt.colorbar()
+plt.ylim(-np.max(np.abs(difference)), np.max(np.abs(difference)))
 plt.xlabel(r'$x$')
-plt.ylabel(r'$y$')
+plt.ylabel(r'$Difference$')
 plt.title('Error')
 plt.margins(0,0)
 

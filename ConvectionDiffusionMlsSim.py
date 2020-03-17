@@ -36,7 +36,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     
     """
     
-    def __init__(self, N, dt, u0, velocity, diffusivity, **kwargs):
+    def __init__(self, N, dt, u0, velocity, diffusivity, ndim=2, **kwargs):
         """Construct ConvectionDiffusionMlsSim by extending MlsSim constructor
     
         Parameters
@@ -53,12 +53,19 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         None.
     
         """
-        self.ndim = 2
-        self.nNodes = N*N
-        self.nodes = np.indices((N, N), dtype='float64').reshape(2,-1).T / N
+        self.ndim = ndim
+        self.nNodes = N**ndim
+        self.nodes = np.indices(np.repeat(N, ndim), dtype='float64') \
+                    .reshape(ndim,-1).T / N
         super().__init__(N, **kwargs)
         self.velocity = velocity
-        self.diffusivity = diffusivity
+        if isinstance(diffusivity, np.ndarray):
+            self.diffusivity = diffusivity
+        else:
+            self.diffusivity = np.array([[diffusivity]], dtype='float64')
+        if self.diffusivity.shape != (ndim,ndim):
+            raise SystemExit(f"diffusivity must be (or be convertible to) a "
+                f"numpy.array with shape ({ndim},{ndim}) for ndim = {ndim}.")
         self.generateQuadraturePoints(kwargs['quadrature'])
         self.dudt = np.zeros(self.nNodes, dtype='float64')
         self.time = 0.0
@@ -66,24 +73,17 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.dt = dt
         ##### Augment nodes for periodic BCs #####
         self.periodicIndices = np.arange(0, self.nNodes)
-        newInds1 = np.flatnonzero(self.nodes[:,0] < self.support)
-        newInds2 = np.flatnonzero(self.nodes[:,0] > (1.0 - self.support))
-        self.periodicIndices = np.hstack( (self.periodicIndices,
-                                           newInds1,
-                                           newInds2) )
-        self.nodes = np.vstack( (self.nodes,
-                                 self.nodes[newInds1] + [1.0, 0.0],
-                                 self.nodes[newInds2] - [1.0, 0.0]) )
-        newInds1 = np.flatnonzero(self.nodes[:,1] < self.support)
-        newInds2 = np.flatnonzero(self.nodes[:,1] > (1.0 - self.support))
-        self.periodicIndices = np.hstack( (self.periodicIndices, 
-                                           self.periodicIndices[newInds1],
-                                           self.periodicIndices[newInds2]) )
-        self.nodes = np.vstack( (self.nodes,
-                                 self.nodes[newInds1] + [0.0, 1.0],
-                                 self.nodes[newInds2] - [0.0, 1.0]) )
+        for i in range(ndim):
+            newInds1 = np.flatnonzero(self.nodes[:,i] < self.support)
+            newInds2 = np.flatnonzero(self.nodes[:,i] > (1.0 - self.support))
+            self.periodicIndices = np.hstack((self.periodicIndices, 
+                                              self.periodicIndices[newInds1],
+                                              self.periodicIndices[newInds2]))
+            self.nodes = np.vstack((self.nodes,
+                                    self.nodes[newInds1] + np.eye(ndim)[i],
+                                    self.nodes[newInds2] - np.eye(ndim)[i]))
         self.nodes, newInds = np.unique(self.nodes, return_index=True, axis=0)
-        self.uIndices = np.flatnonzero(newInds<self.nNodes)
+        self.uIndices = np.flatnonzero(newInds < self.nNodes)
         self.periodicIndices = self.periodicIndices[newInds]
         self.setInitialConditions(u0)
     
@@ -104,27 +104,24 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         """
         self.u0 = u0
         self.uTime = 0.0
-        try:
-            if u0.shape == (self.nNodes,):
-                self.u = u0
-            else:
-                raise Exception()
-        except AttributeError: # u0 object has no attribute 'shape'
-            self.u = u0(self.uNodes())
-            if self.u.shape != (self.nNodes,):
-                raise Exception()
-        except:
-            print(f"Error: u0 must be an array of shape ({self.nNodes},) or a "
-                  f"function returning such an array and taking as input the "
-                  f"array of (x,y) node coordinates with shape "
-                  f"({self.nNodes}, 2).\nUsing default u = "
-                  f"np.zeros({self.nNodes}, dtype='float64')")
-            self.u = np.zeros(self.nNodes, dtype='float64')
+        if isinstance(u0, np.ndarray) and u0.shape == (self.nNodes,):
+            self.u = u0
+        else:
+            try:
+                self.u = u0(self.uNodes())
+                if self.u.shape != (self.nNodes,):
+                    raise Exception()
+            except:
+                raise SystemExit(f"u0 must be an array of shape "
+                    f"({self.nNodes},) or a function returning such an array "
+                    f"and taking as input the array of (x,y) node coordinates "
+                    f"with shape ({self.nNodes}, 2).")
         # pre-allocate arrays for constructing matrix equation for uI
         # this is the maximum possibly required size; not all will be used
-        nMaxEntriesPerNode = int(self.nNodes*4*(self.support+0.25/self.N)**2)
-        data = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='float64')
-        indices = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='uint32')
+        nMaxEntries = int( self.nNodes*(2.0*(self.support + 0.25/self.N))
+                           **self.ndim * self.nNodes )
+        data = np.empty(nMaxEntries, dtype='float64')
+        indices = np.empty(nMaxEntries, dtype='uint32')
         indptr = np.empty(self.nNodes+1, dtype='uint32')
         index = 0
         for iN, node in enumerate(self.uNodes()):
@@ -135,6 +132,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             indptr[iN] = index
             index += nEntries
         indptr[-1] = index
+        print(f"{index}/{nMaxEntries} used for u0")
         A = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                            shape=(self.nNodes, self.nNodes) )
         self.uI = sp_la.spsolve(A, self.u)
@@ -153,12 +151,13 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         """
         # pre-allocate arrays for discretization matrix triplets
         # these are the maximum possibly required sizes; not all will be used
-        nMaxEntriesPerQuad = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
-        Kdata = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='float64')
-        Adata = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='float64')
-        Mdata = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='float64')
-        row_ind = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='uint32')
-        col_ind = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='uint32')
+        nMaxEntries = int( ( self.nNodes*(2.0*(self.support + 0.25/self.N))
+                             **self.ndim )**2 * self.nQuads )
+        Kdata = np.zeros(nMaxEntries, dtype='float64')
+        Adata = np.zeros(nMaxEntries, dtype='float64')
+        Mdata = np.zeros(nMaxEntries, dtype='float64')
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
         # build matrix for interior nodes
         index = 0
         for iQ, quad in enumerate(self.quads):
@@ -177,6 +176,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             # print(quad, indices)
             # if np.any(phi<0):
             #     print('Negative phi value detected!!!!!')
+        print(f"{index}/{nMaxEntries} used for spatial discretization")
         K_inds = np.flatnonzero(Kdata.round(decimals=14, out=Kdata))
         A_inds = np.flatnonzero(Adata.round(decimals=14, out=Adata))
         M_inds = np.flatnonzero(Mdata.round(decimals=14, out=Mdata))
@@ -199,8 +199,9 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         for i in range(nSteps):
             uTemp = self.uI
             for beta in betas:
-                self.dudt, info = sp_la.cg(self.M, self.KA@uTemp, x0=self.dudt, **kwargs)
-                # self.dudt = sp_la.spsolve(self.M, self.KA@self.uI)
+                self.dudt, info = sp_la.cg(self.M, self.KA@uTemp,
+                                           x0=self.dudt, **kwargs)
+                # self.dudt = sp_la.spsolve(self.M, self.KA@uTemp)
                 uTemp = self.uI + beta*self.dt*self.dudt
                 if (info != 0):
                     print(f'solution failed with error code: {info}')

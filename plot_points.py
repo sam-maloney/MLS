@@ -23,7 +23,7 @@ def hat(points):
 N = 3
 dt = 0.01
 velocity = np.array([0.1, 0.0], dtype='float64')
-diffusivity = 0.001
+diffusivity = np.array([[0.01, 0.],[0., 0.01]], dtype='float64')
 kwargs={
     'N' : N,
     'g' : g,

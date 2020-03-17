@@ -61,6 +61,8 @@ class PoissonMlsSim(mls.MlsSim):
         self.nodes = ( np.indices((N+1, N+1), dtype='float64')
                        .reshape(2,-1).T ) / N
         super().__init__(N, **kwargs)
+        self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
+        self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
         self.boundaryValues = g(self.nodes[self.isBoundaryNode]) \
                                 .round(decimals=14)
         self.g = g
@@ -112,10 +114,11 @@ class PoissonMlsSim(mls.MlsSim):
         """
         # pre-allocate arrays for stiffness matrix triplets
         # these are the maximum possibly required sizes; not all will be used
-        nMaxEntriesPerQuad = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
-        data = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='float64')
-        row_ind = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='uint32')
-        col_ind = np.zeros(self.nQuads * nMaxEntriesPerQuad, dtype='uint32')
+        nMaxEntries = int( ( self.nNodes*(2.0*(self.support + 0.25/self.N))
+                             **self.ndim )**2 * self.nQuads )
+        data = np.zeros(nMaxEntries, dtype='float64')
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
         # build matrix for interior nodes
         index = 0
         for iQ, quad in enumerate(self.quads):
@@ -133,8 +136,8 @@ class PoissonMlsSim(mls.MlsSim):
         self.K *= self.quadWeight
         # pre-allocate arrays for additional stiffness matrix triplets
         # these are the maximum possibly required sizes; not all will be used
-        nMaxEntriesPerNode = int((self.nNodes*4*(self.support+0.25/self.N)**2)**2)
-        nMaxEntries = self.nBoundaryNodes * nMaxEntriesPerNode
+        nMaxEntries = int( ( self.nNodes*(2.0*(self.support+0.25/self.N))
+                             **self.ndim )**2 * self.nBoundaryNodes )
         data = np.zeros(nMaxEntries, dtype='float64')
         row_ind = np.zeros(nMaxEntries, dtype='uint32')
         col_ind = np.zeros(nMaxEntries, dtype='uint32')
@@ -163,9 +166,10 @@ class PoissonMlsSim(mls.MlsSim):
         """
         # pre-allocate arrays for constructing stiffness matrix
         # this is the maximum possibly required size; not all will be used
-        nMaxEntriesPerNode = int(self.nNodes*4*(self.support+0.25/self.N)**2)
-        data = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='float64')
-        indices = np.empty(self.nNodes * nMaxEntriesPerNode, dtype='uint32')
+        nMaxEntries = int( self.nNodes*(2.0*(self.support + 0.25/self.N))
+                           **self.ndim * self.nNodes )
+        data = np.empty(nMaxEntries, dtype='float64')
+        indices = np.empty(nMaxEntries, dtype='uint32')
         indptr = np.empty(self.nNodes+1, dtype='uint32')
         index = 0
         for iN, node in enumerate(self.nodes):
@@ -180,6 +184,7 @@ class PoissonMlsSim(mls.MlsSim):
                 phi, d2phi = self.d2phi(node, self.nodes[inds])
                 data[index:index+nEntries] = d2phi.sum(axis=1)
             index += nEntries
+        # print(f"{index}/{nMaxEntries} used for spatial discretization")
         indptr[-1] = index
         self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                                 shape=(self.nNodes, self.nNodes) )
