@@ -38,8 +38,10 @@ class LinearBasis(Basis):
     def name(self):
         return 'linear'
     
-    def __init__(self, ndim = 2):
-        super().__init__(ndim, ndim + 1)
+    def __init__(self, ndim=2, size=-1):
+        if size < 0:
+            size = ndim + 1
+        super().__init__(ndim, size)
         self._dp = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
 
     def p(self, point):
@@ -73,10 +75,10 @@ class QuadraticBasis(Basis):
             return np.hstack((np.ones((len(point),1)), point,
                               x**2, x*y, x*z, y**2, y*z, z**2))
     
-    def dp(self, point=None):
-        point.shape = (2,)
+    def dp(self, point):
+        point.shape = (self.ndim,)
         if self.ndim == 1:
-            return np.hstack((self.dpLinear,[2*point[0]]))
+            return np.hstack((self.dpLinear,[2*point]))
         elif self.ndim == 2:
             x = point[0]
             y = point[1]

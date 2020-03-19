@@ -21,18 +21,21 @@ def gaussian(points):
     A = 1.0
     ndim = points.shape[1]
     r0 = (0.5, 0.5, 0.5)[0:ndim]
-    sigma = (0.15, 0.15, 0.15)[0:ndim]
+    sigma = (0.1, 0.1, 0.1)[0:ndim]
     return np.exp( -0.5*A*np.sum(((points - r0)/sigma )**2, 1) )
 
 def hat(points):
     return np.hstack((points > 0.25, points < 0.75)).all(1).astype('float64')
 
+def sinusoid(points):
+    return np.sin(2.0*np.pi*np.sum(points, axis=1))
+
 # N is the number of grid cells along one dimension,
 # therefore the number of nodes equals N*N
-N = 30
+N = 100
 dt = 0.01
 velocity = 0.1
-diffusivity = 0.0
+diffusivity = 0.000015
 # diffusivity = np.array([[0.01]], dtype='float64')
 # velocity = np.array([0.1], dtype='float64')
 print(f'N = {N}\ndt = {dt}\n'
@@ -42,15 +45,15 @@ print(f'N = {N}\ndt = {dt}\n'
 kwargs={
     'N' : N,
     'dt' : dt,
-    'u0' : gaussian,
+    'u0' : hat,
     'velocity' : velocity,
     'diffusivity' : diffusivity,
     'ndim' : 1,
-    'Nquad' : 2,
-    'support' : 1.9,
+    'Nquad' : 3,
+    'support' : 2.9,
     'form' : 'cubic',
-    'quadrature' : 'gaussian',
-    'basis' : 'linear'}
+    'quadrature' : 'uniform',
+    'basis' : 'quadratic'}
 
 tolerance = 1e-10
 
@@ -121,7 +124,7 @@ mpl.rc('ytick', labelsize='large')
 plt.subplot(121)
 plt.plot(mlsSim.nodes, mlsSim.u[mlsSim.periodicIndices])
 plt.xlim(0.0, 1.0)
-plt.ylim(0.0, 1.0)
+# plt.ylim(0.0, 1.0)
 plt.xlabel(r'$x$')
 plt.ylabel(r'$u$')
 plt.title('Final MLS solution')

@@ -62,7 +62,9 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         if isinstance(diffusivity, np.ndarray):
             self.diffusivity = diffusivity
         else:
-            self.diffusivity = np.array([[diffusivity]], dtype='float64')
+            self.diffusivity = np.array(diffusivity, dtype='float64')
+            if self.diffusivity.shape != (ndim,ndim):
+                self.diffusivity = diffusivity * np.eye(ndim, dtype='float64')
         if self.diffusivity.shape != (ndim,ndim):
             raise SystemExit(f"diffusivity must be (or be convertible to) a "
                 f"numpy.array with shape ({ndim},{ndim}) for ndim = {ndim}.")
@@ -187,10 +189,11 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                                 shape=(self.nNodes, self.nNodes) )
         self.M = sp.csr_matrix( (Mdata[M_inds], (row_ind[M_inds], col_ind[M_inds])),
                                 shape=(self.nNodes, self.nNodes) )
-        self.K *= -self.quadWeight
-        self.A *= self.quadWeight
-        self.M *= self.quadWeight
-        self.KA = self.K + self.A
+        # self.K *= -self.quadWeight
+        # self.A *= self.quadWeight
+        # self.M *= self.quadWeight
+        # self.KA = self.K + self.A
+        self.KA = self.A - self.K
     
     def step(self, nSteps = 1, **kwargs):
         info = 0
