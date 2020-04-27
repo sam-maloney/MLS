@@ -55,21 +55,15 @@ kwargs={
     'quadrature' : 'uniform',
     'basis' : 'quadratic'}
 
+precon='ilu'
 tolerance = 1e-10
-
-# # allocate arrays for convergence testing
-# start = 1
-# stop = 5
-# nSamples = stop - start + 1
-# N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='int32')
-# E_inf = np.empty(nSamples, dtype='float64')
-# E_2 = np.empty(nSamples, dtype='float64')
 
 start_time = default_timer()
     
 # Initialize simulation
 mlsSim = ConvectionDiffusionMlsSim(**kwargs)
 mlsSim.computeSpatialDiscretization()
+mlsSim.precondition(precon)
 
 current_time = default_timer()
 print(f'Set-up time = {current_time-start_time} s')
@@ -137,7 +131,7 @@ plt.plot(mlsSim.nodes, difference[mlsSim.periodicIndices])
 plt.xlim(0.0, 1.0)
 plt.ylim(-np.max(np.abs(difference)), np.max(np.abs(difference)))
 plt.xlabel(r'$x$')
-plt.ylabel(r'$Difference$')
+plt.ylabel(r'$\mathrm{Difference}$')
 plt.title('Error')
 plt.margins(0,0)
 

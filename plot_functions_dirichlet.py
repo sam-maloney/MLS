@@ -44,6 +44,9 @@ def xy(points):
 def x2y2(points):
     return points[:,0]**2 * points[:,1]**2
 
+def x2py2(points):
+    return points[:,0]**2 + points[:,1]**2
+
 def sinx(points):
     return np.sin(np.pi*points[:,0])
 
@@ -65,7 +68,7 @@ def sinxpy(points):
 def sinxsiny(points):
     return np.sin(np.pi*points[:,0])*np.sin(np.pi*points[:,1])
 
-func = xpy
+func = x2py2
 
 kwargs={
     'Nquad' : 2,

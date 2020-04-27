@@ -24,26 +24,62 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         Background velocity of the fluid.
     diffusivity : float
         Diffusion coefficient for the quantity of interest.
+    dt : float
+        Time interval between each successive timestep.
+    timestep : int
+        Current timestep of the simulation.
+    time : float
+        Current time of the simulation; equal to timestep*dt.
+    dudt : numpy.ndarray, dtype='float64'
+        (self.nNodes,) array of most recently computed time derivative.
+    periodicIndices : numpy.ndarray, dtype='int'
+        Inidices mapping periodic boundary nodes to their real solution nodes.
+    uIndices : numpy.ndarray, dtype='int'
+        Indices of the real solution nodes in the full periodic nodes array.
     
     Methods
     -------
-    selectMethod(self, method, quadrature)
-        Register the 'self.assembleStiffnesMatrix' method.
-    defineSupport(self, point)
-        Find nodes within support of a given evaluation point.
-    solve(self, preconditioner=None, **kwargs):
-        Solve for the approximate solution using an iterative solver.
-    
+    setInitialConditions(self, u0):
+        Initialize the shape function coefficients for the given IC.
+    computeSpatialDiscretization(self):
+        Assemble the system discretization matrices K, A, M in CSR format.
+    precondition(self, preconditioner=None, P=None):
+        Generate and/or store the preconditioning matrix P.
+    step(self, nSteps = 1, **kwargs):
+        Advance the simulation a given number of timesteps.
+    uNodes(self):
+        Return the set of solution nodes that excludes periodic repeats.
+    solve(self):
+        Reconstruct the final solution vector, u, from shape functions.
+    cond(self, order=2):
+        Compute the condition number of the (preconditioned) mass matrix M.
     """
     
-    def __init__(self, N, dt, u0, velocity, diffusivity, ndim=2, **kwargs):
-        """Construct ConvectionDiffusionMlsSim by extending MlsSim constructor
+    def __init__(self, N, dt, u0, velocity, diffusivity,
+                 quadrature='uniform', **kwargs):
+        """Initialize attributes of ConvectionDiffusion simulation class
+        Extends MlsSim.__init__() constructor
     
         Parameters
         ----------
-        N : integer
-            Number of grid cells along one dimension.
-            Must be greater than 0.
+        N : int
+            Number of grid cells along one dimension. Must be greater than 0.
+        dt : float
+            Time interval between each successive timestep.
+        u0 : {numpy.ndarray, function object}
+            Initial conditions for the simulation.
+            Must be an array of shape (self.nNodes,) or a function returning
+            such an array and taking as input the array of (x,y) node
+            coordinates with shape ({self.nNodes}, 2).
+        velocity : np.array([vx,vy,vz], dtype='float64')
+            Background velocity of the fluid.
+        diffusivity : {numpy.ndarray, float}
+            Diffusion coefficient for the quantity of interest.
+            If an array, it must have shape (ndim,ndim). If a float, it will
+            be converted to diffusivity*np.eye(ndim, dtype='float64').
+        quadrature : string, optional
+            Distribution of quadrature points in each cell.
+            Must be either 'uniform' or 'gaussian'. Default is 'uniform'.
         **kwargs
             Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
@@ -53,48 +89,49 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         None.
     
         """
-        self.ndim = ndim
-        self.nNodes = N**ndim
-        self.nodes = np.indices(np.repeat(N, ndim), dtype='float64') \
-                    .reshape(ndim,-1).T / N
         super().__init__(N, **kwargs)
+        self.nNodes = N**self.ndim
+        self.nodes = np.indices(np.repeat(N, self.ndim), dtype='float64') \
+                    .reshape(self.ndim,-1).T / N
         self.velocity = velocity
         if isinstance(diffusivity, np.ndarray):
             self.diffusivity = diffusivity
         else:
             self.diffusivity = np.array(diffusivity, dtype='float64')
-            if self.diffusivity.shape != (ndim,ndim):
-                self.diffusivity = diffusivity * np.eye(ndim, dtype='float64')
-        if self.diffusivity.shape != (ndim,ndim):
+            if self.diffusivity.shape != (self.ndim,self.ndim):
+                self.diffusivity = diffusivity * np.eye(self.ndim, dtype='float64')
+        if self.diffusivity.shape != (self.ndim,self.ndim):
             raise SystemExit(f"diffusivity must be (or be convertible to) a "
-                f"numpy.array with shape ({ndim},{ndim}) for ndim = {ndim}.")
-        self.generateQuadraturePoints(kwargs['quadrature'])
+                f"numpy.ndarray with shape ({self.ndim},{self.ndim}) for "
+                f"ndim = {self.ndim}.")
+        self.generateQuadraturePoints(quadrature)
         self.dudt = np.zeros(self.nNodes, dtype='float64')
         self.time = 0.0
         self.timestep = 0
         self.dt = dt
         ##### Augment nodes for periodic BCs #####
         self.periodicIndices = np.arange(0, self.nNodes)
-        for i in range(ndim):
-            newInds1 = np.flatnonzero(self.nodes[:,i] < self.support)
-            newInds2 = np.flatnonzero(self.nodes[:,i] > (1.0 - self.support))
+        for i in range(self.ndim):
+            newInds1 = np.flatnonzero(self.nodes[:,i] < self.support.size)
+            newInds2 = np.flatnonzero(self.nodes[:,i] > (1.0 - self.support.size))
             self.periodicIndices = np.hstack((self.periodicIndices, 
                                               self.periodicIndices[newInds1],
                                               self.periodicIndices[newInds2]))
             self.nodes = np.vstack((self.nodes,
-                                    self.nodes[newInds1] + np.eye(ndim)[i],
-                                    self.nodes[newInds2] - np.eye(ndim)[i]))
+                                    self.nodes[newInds1] + np.eye(self.ndim)[i],
+                                    self.nodes[newInds2] - np.eye(self.ndim)[i]))
         self.nodes, newInds = np.unique(self.nodes, return_index=True, axis=0)
         self.uIndices = np.flatnonzero(newInds < self.nNodes)
         self.periodicIndices = self.periodicIndices[newInds]
         self.setInitialConditions(u0)
     
     def __repr__(self):
+        diffusivity_repr = ' '.join(repr(self.diffusivity).split())
         return f"{self.__class__.__name__}({self.N}, {self.dt}, " \
                f"{self.u0.__name__}, {repr(self.velocity)}, " \
-               f"{self.diffusivity}, Nquad={self.Nquad}, " \
-               f"support={self.support*self.N}, form='{self.form}', " \
-               f"quadrature='{self.quadrature}')"
+               f"{diffusivity_repr}, '{self.quadrature}', ndim={self.ndim}, " \
+               f"Nquad={self.Nquad}, support={repr(self.support)}, " \
+               f"form='{self.form}', basis='{self.basis.name}')"
     
     def setInitialConditions(self, u0):
         """Initialize the shape function coefficients for the given IC.
@@ -120,16 +157,16 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                     f"with shape ({self.nNodes}, 2).")
         # pre-allocate arrays for constructing matrix equation for uI
         # this is the maximum possibly required size; not all will be used
-        nMaxEntries = int( self.nNodes*(2.0*(self.support + 0.25/self.N))
-                           **self.ndim * self.nNodes )
+        nMaxEntries = int( self.support.volume * (self.N+1)**self.ndim
+                          *self.nNodes )
         data = np.empty(nMaxEntries, dtype='float64')
         indices = np.empty(nMaxEntries, dtype='uint32')
         indptr = np.empty(self.nNodes+1, dtype='uint32')
         index = 0
         for iN, node in enumerate(self.uNodes()):
-            inds = self.defineSupport(node)
+            inds, phis = self.phi(node)
             nEntries = len(inds)
-            data[index:index+nEntries] = self.phi(node, self.nodes[inds])
+            data[index:index+nEntries] = phis
             indices[index:index+nEntries] = self.periodicIndices[inds]
             indptr[iN] = index
             index += nEntries
@@ -153,8 +190,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         """
         # pre-allocate arrays for discretization matrix triplets
         # these are the maximum possibly required sizes; not all will be used
-        nMaxEntries = int( ( self.nNodes*(2.0*(self.support + 0.25/self.N))
-                             **self.ndim )**2 * self.nQuads )
+        nMaxEntries = int( (self.support.volume * (self.N+1)**self.ndim)**2
+                           *self.nQuads )
         Kdata = np.zeros(nMaxEntries, dtype='float64')
         Adata = np.zeros(nMaxEntries, dtype='float64')
         Mdata = np.zeros(nMaxEntries, dtype='float64')
@@ -163,20 +200,19 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         # build matrix for interior nodes
         index = 0
         for iQ, quad in enumerate(self.quads):
-            indices = self.defineSupport(quad)
+            indices, phis, gradphis = self.dphi(quad)
             nEntries = len(indices)**2
-            phi, gradphi = self.dphi(quad, self.nodes[indices])
             Kdata[index:index+nEntries] = np.ravel(
-                gradphi @ (self.diffusivity @ gradphi.T) )
+                gradphis @ (self.diffusivity @ gradphis.T) )
             Adata[index:index+nEntries] = np.ravel(
-                np.outer(np.dot(gradphi, self.velocity), phi) )
-            Mdata[index:index+nEntries] = np.ravel(np.outer(phi, phi))
+                np.outer(np.dot(gradphis, self.velocity), phis) )
+            Mdata[index:index+nEntries] = np.ravel(np.outer(phis, phis))
             indices = self.periodicIndices[indices]
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
             index += nEntries
             # print(quad, indices)
-            # if np.any(phi<0):
+            # if np.any(phis<0):
             #     print('Negative phi value detected!!!!!')
         print(f"{index}/{nMaxEntries} used for spatial discretization")
         K_inds = np.flatnonzero(Kdata.round(decimals=14, out=Kdata))
@@ -189,13 +225,70 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                                 shape=(self.nNodes, self.nNodes) )
         self.M = sp.csr_matrix( (Mdata[M_inds], (row_ind[M_inds], col_ind[M_inds])),
                                 shape=(self.nNodes, self.nNodes) )
+        ##### Since the quadWeight is constant, this isn't necessary #####
         # self.K *= -self.quadWeight
         # self.A *= self.quadWeight
         # self.M *= self.quadWeight
         # self.KA = self.K + self.A
         self.KA = self.A - self.K
+        self.P = None
+    
+    def precondition(self, preconditioner=None, P=None):
+        """Generate and/or store the preconditioning matrix P.
+
+        Parameters
+        ----------
+        preconditioner : {string, None}, optional
+            Which preconditioning method to use. If P is not given, then it
+            must be one of 'jacobi', 'ilu', or None. If P is given, then any
+            string can be given as the name for P; if None is given, it will
+            default to 'user_defined'. The default is None.
+        P : {scipy.sparse.linalg.LinearOperator, None}, optional
+            Used to directly specifiy the linear operator to be used.
+            The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
+        self.preconditioner = preconditioner
+        if P != None:
+            self.P = P
+            if self.preconditioner == None:
+                self.preconditioner = 'user_defined'
+            return
+        if self.preconditioner == None:
+            self.P = None
+        elif preconditioner.lower() == 'ilu':
+            ilu = sp_la.spilu(self.M)
+            self.P = sp_la.LinearOperator(self.M.shape, lambda x: ilu.solve(x))
+        elif preconditioner.lower() == 'jacobi':
+            self.P = sp_la.inv( sp.diags( self.M.diagonal(), format='csc',
+                                          dtype='float64' ) )
+        else:
+            print(f"Error: unkown preconditioner '{preconditioner}'. "
+                  f"Must be one of 'ilu' or 'jacobi' (or None). "
+                  f"Defaulting to None.")
     
     def step(self, nSteps = 1, **kwargs):
+        """Advance the simulation a given number of timesteps.
+
+        Parameters
+        ----------
+        nSteps : int, optional
+            Number of timesteps to compute. The default is 1.
+        **kwargs
+            Used to specify optional arguments passed to the linear solver.
+            Note that kwargs["M"] will be overwritten, use self.precon(...)
+            instead to generate or specify a preconditioner.
+
+        Returns
+        -------
+        None.
+
+        """
+        kwargs["M"] = self.P
         info = 0
         betas = np.array([0.25, 1.0/3.0, 0.5, 1.0], dtype='float64') ## RK4 ##
         # betas = np.array([1.0], dtype='float64') ## Forward Euler ##
@@ -213,7 +306,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.time = self.timestep * self.dt
     
     def uNodes(self):
-        """Return the set of nodes on which the solution is computed.
+        """Return the set of solution nodes that excludes periodic repeats.
+        Overrides the superclass MlsSim.uNodes() method.
 
         Returns
         -------
@@ -225,6 +319,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     
     def solve(self):
         """Reconstruct the final solution vector, u, from shape functions.
+        Implements the superclass MlsSim.solve() abstract method.
 
         Returns
         -------
@@ -234,12 +329,12 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.uTime = self.time
         self.u = np.empty(self.nNodes, dtype='float64')
         for iN, node in enumerate(self.uNodes()):
-            indices = self.defineSupport(node)
-            self.u[iN] = self.uI[self.periodicIndices[indices]] @ \
-                         self.phi(node, self.nodes[indices])
+            indices, phis = self.phi(node)
+            self.u[iN] = self.uI[self.periodicIndices[indices]] @ phis
     
     def cond(self, order=2):
-        """Computes the condition number of the mass matrix M.
+        """Compute the condition number of the (preconditioned) mass matrix M.
+        Utilizes the superclass MlsSim.cond() method.
         
         Parameters
         ----------
@@ -252,4 +347,4 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             The condition number of the matrix.
 
         """
-        return super().cond(self.M, None, order)
+        return super().cond(self.M, self.P, order)

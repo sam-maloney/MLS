@@ -24,10 +24,10 @@ def g(points):
             
 kwargs={
     'Nquad' : 2,
-    'support' : 2.5,
-    'form' : 'cubic',
+    'support' : ('circular', 1.8),
+    'form' : 'quartic',
     'method' : 'galerkin',
-    'quadrature' : 'gaussian',
+    'quadrature' : 'uniform',
     'basis' : 'linear'}
 
 precon='ilu'
@@ -35,7 +35,7 @@ tolerance = 1e-10
 
 # allocate arrays for convergence testing
 start = 1
-stop = 5
+stop = 7
 nSamples = stop - start + 1
 N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='int32')
 E_inf = np.empty(nSamples, dtype='float64')
@@ -81,64 +81,66 @@ print(f'min(E_2)   = {np.min(E_2)}')
 # clear the current figure, if opened, and set parameters
 fig = plt.gcf()
 fig.clf()
-fig.set_size_inches(15,15)
-mpl.rc('axes', titlesize='xx-large', labelsize='x-large')
-mpl.rc('xtick', labelsize='large')
-mpl.rc('ytick', labelsize='large')
-plt.subplots_adjust(hspace = 0.3, wspace = 0.25)
+fig.set_size_inches(7.75,3)
+plt.subplots_adjust(hspace = 0.3, wspace = 0.2)
+
+SMALL_SIZE = 7
+MEDIUM_SIZE = 8
+BIGGER_SIZE = 10
+plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 # plot the result
-plt.subplot(221)
+plt.subplot(121)
 plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], mlsSim.u, shading='gouraud')
 plt.colorbar()
 plt.xlabel(r'$x$')
-plt.ylabel(r'$y$')
-plt.title('Final MLS solution')
+plt.ylabel(r'$y$', rotation=0)
+# plt.title('Final MLS solution')
 plt.margins(0,0)
 
-# plot analytic solution
-plt.subplot(222)
-plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], u_exact, shading='gouraud')
-plt.colorbar()
-plt.xlabel(r'$x$')
-plt.ylabel(r'$y$')
-plt.title('Analytic solution')
-plt.margins(0,0)
+# # plot analytic solution
+# plt.subplot(222)
+# plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], u_exact, shading='gouraud')
+# plt.colorbar()
+# plt.xlabel(r'$x$')
+# plt.ylabel(r'$y$')
+# # plt.title('Analytic solution')
+# plt.margins(0,0)
 
 # plot the error convergence
-plt.subplot(223)
-plt.loglog(N_array, E_inf, '.-', label=r'$E_\infty$')
-plt.loglog(N_array, E_2, '.-', label=r'$E_2$')
+ax1 = plt.subplot(122)
+plt.loglog(N_array, E_inf, '.-', label=r'$E_\infty$ magnitude')
+plt.loglog(N_array, E_2, '.-', label=r'$E_2$ magnitude')
 plt.minorticks_off()
 plt.xticks(N_array, N_array)
 plt.xlabel(r'$N$')
 plt.ylabel(r'Magnitude of Error Norm')
-plt.title('MLS Error Norms')
-plt.legend(fontsize='x-large')
 
 # plot the intra-step order of convergence
-plt.subplot(224)
+ax2 = ax1.twinx()
 logN = np.log(N_array)
 logE_inf = np.log(E_inf)
 logE_2 = np.log(E_2)
 order_inf = (logE_inf[0:-1] - logE_inf[1:])/(logN[1:] - logN[0:-1])
 order_2 = (logE_2[0:-1] - logE_2[1:])/(logN[1:] - logN[0:-1])
 intraN = np.logspace(start+0.5, stop-0.5, num=nSamples-1, base=2.0)
-plt.plot(intraN, order_inf, '.-', label=r'$E_\infty$')
-plt.plot(intraN, order_2, '.-', label=r'$E_2$')
-plt.plot([N_array[0], N_array[-1]], [2, 2], 'k:', label='Expected')
-plt.xlim(N_array[0], N_array[-1])
-plt.xscale('log')
-plt.minorticks_off()
-plt.xticks(N_array, N_array)
+plt.plot(intraN, order_inf, '.:', linewidth=1, label=r'$E_\infty$ order')
+plt.plot(intraN, order_2, '.:', linewidth=1, label=r'$E_2$ order')
+plt.plot(plt.xlim(), [2, 2], 'k:', linewidth=1, label='Expected')
 # plt.ylim(1, 3)
 # plt.yticks([1, 1.5, 2, 2.5, 3])
 plt.ylim(0, 3)
 plt.yticks([0, 0.5, 1, 1.5, 2, 2.5, 3])
-plt.xlabel(r'$N$')
 plt.ylabel(r'Intra-step Order of Convergence')
-plt.title('MLS Order of Accuracy')
-plt.legend(fontsize='x-large')
+lines, labels = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax2.legend(lines + lines2, labels + labels2, loc='best')
 plt.margins(0,0)
 
 # plt.savefig(f"MLS_{method}_{form}_{k}k_{Nquad}Q_{mlsSim.support*mlsSim.N}S.pdf",

@@ -4,6 +4,24 @@
 Created on Fri Jan 17 16:20:15 2020
 
 @author: Sam Maloney
+
+Classes
+-------
+Support(metaclass=ABCMeta)
+CircularSupport(Support)
+RectangularSupport(Support)
+
+Basis(metaclass=ABCMeta)
+LinearBasis(Basis)
+QuadraticBasis(Basis)
+
+WeightFunction(metaclass=ABCMeta)
+CubicSpline(WeightFunction)
+QuarticSpline(WeightFunction)
+Gaussian(WeightFunction)
+
+MlsSim(metaclass=ABCMeta)
+
 """
 
 import numpy as np
@@ -15,16 +33,257 @@ from scipy.special import comb
 from abc import ABCMeta, abstractmethod
 
 
+class Support(metaclass=ABCMeta):
+    @property
+    @abstractmethod
+    def name(self): pass
+
+    def __init__(self, mlsSim, size):
+        self.sim = mlsSim
+        self.ndim = mlsSim.ndim
+        self.weightFunction = mlsSim.weightFunction
+        self.size = size
+        self.rsize = 1./size
+
+    @abstractmethod
+    def w(self, point):
+        """Compute kernel function values and support indices at given point.
+
+        Parameters
+        ----------
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of evaluation point.
+
+        Returns
+        -------
+        indices : numpy.ndarray, dtype='uint32', shape=(n,)
+            Indices of nodes with non-zero support at evaluation point.
+        w : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of kernel for all n nodes in self.sim.nodes[indices].
+
+        """
+        pass
+    
+    @abstractmethod
+    def dw(self, point):
+        """Compute kernel values, gradients, and support indices at point.
+
+        Parameters
+        ----------
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of evaluation point.
+
+        Returns
+        -------
+        indices : numpy.ndarray, dtype='uint32', shape=(n,)
+            Indices of nodes with non-zero support at evaluation point.
+        w : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of kernel for all n nodes in self.sim.nodes[indices].
+        gradw : numpy.ndarray, dtype='float64', shape=(n,ndim)
+            Gradients of kernel for all n nodes in self.nodes[indices].
+            Has the form numpy.array([[dx1,dy1,dz1],[dx2,dy2,dz2]...])
+
+        """
+        pass
+
+    @abstractmethod
+    def d2w(self, point):
+        """Compute kernel values, gradients, laplacians, and indices at point.
+
+        Parameters
+        ----------
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of given evaluation point.
+
+        Returns
+        -------
+        indices : numpy.ndarray, dtype='uint32', shape=(n,)
+            Indices of nodes with non-zero support at evaluation point.
+        w : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of kernel for all n nodes in self.sim.nodes[indices].
+        gradw : numpy.ndarray, dtype='float64', shape=(n,ndim)
+            Gradients of kernel for all n nodes in self.nodes[indices].
+            Has the form numpy.array([[dx1,dy1,dz1],[dx2,dy2,dz2]...])
+        grad2w :  numpy.ndarray, dtype='float64', shape=(n,ndim)
+            2nd derivatives of kernel for all n nodes in self.nodes[indices].
+            Has the form numpy.array([[dxx1,dyy1,dzz1],[dxx2,dyy2,dzz2]...]).
+
+        """
+        pass
+
+    def __call__(self, point):
+        return self.w(point)
+    
+    def __repr__(self):
+        return f"('{self.name}', {self.size*self.sim.N})"
+
+class CircularSupport(Support):
+    @property
+    def name(self):
+        return 'circular'
+    
+    def __init__(self, mlsSim, size):
+        super().__init__(mlsSim, size)
+        factor = [2., np.pi, 4.*np.pi/3.][self.ndim-1]
+        self.volume = factor*(self.size + 0.25/mlsSim.N)**self.ndim
+
+    def w(self, point):
+        distances = la.norm(point - self.sim.nodes, axis=1)
+        indices = np.flatnonzero(distances < self.size).astype('uint32')
+        w = self.weightFunction.w(distances[indices] * self.rsize)
+        return indices, w
+    
+    def dw(self, point):
+        indices = np.flatnonzero(la.norm(point - self.sim.nodes, axis=1)
+                                 < self.size).astype('uint32')
+        displacements = (point - self.sim.nodes[indices]) * self.rsize
+        distances = np.array(la.norm(displacements, axis=-1))
+        w, dwdr = self.weightFunction.dw(distances)
+        gradr = np.full(displacements.shape, np.sqrt(1.0/self.ndim)*self.rsize,
+                        dtype='float64')
+        i = distances > 1e-14
+        gradr[i] = displacements[i] / (distances[i]*self.size).reshape((-1,1))
+        gradw = dwdr.reshape((-1,1)) * gradr
+        return indices, w, gradw
+
+    def d2w(self, point):
+        indices = np.flatnonzero(la.norm(point - self.sim.nodes, axis=1)
+                                 < self.size).astype('uint32')
+        displacements = (point - self.sim.nodes[indices]) * self.rsize
+        distances = np.array(la.norm(displacements, axis=-1))
+        w, dwdr, d2wdr2 = self.weightFunction.d2w(distances)
+        gradr = np.full(displacements.shape, np.sqrt(1.0/self.ndim)*self.rsize,
+                        dtype='float64')
+        i = distances > 1e-14
+        gradr[i] = displacements[i] / (distances[i]*self.size).reshape((-1,1))
+        gradw = dwdr.reshape((-1,1)) * gradr
+        grad2w = d2wdr2.reshape((-1,1)) * gradr*gradr
+        return indices, w, gradw, grad2w
+
+class RectangularSupport(Support):
+    @property
+    def name(self):
+        return 'rectangular'
+
+    def __init__(self, mlsSim, size):
+        super().__init__(mlsSim, size)
+        self.volume = (2.*(self.size + 0.25/mlsSim.N))**self.ndim
+
+    def w(self, point):
+        distances = np.abs(point - self.sim.nodes)
+        indices = np.flatnonzero((distances < self.size).all(axis=1)) \
+                                .astype('uint32')
+        w = np.prod( np.apply_along_axis( self.weightFunction.w, 0,
+                distances[indices] * self.rsize ), axis=1 )
+        return indices, w
+    
+    def dw(self, point):
+        displacements = point - self.sim.nodes
+        distances = np.abs(displacements)
+        indices = np.flatnonzero((distances < self.size).all(axis=1)) \
+                                .astype('uint32')
+        w = np.ones((len(indices), self.ndim))
+        dwdr = np.empty(w.shape)
+        for i in range(self.ndim):
+            w[:,i], dwdr[:,i] = self.weightFunction.dw(distances[indices,i]
+                                                       * self.rsize)
+        gradw = dwdr * np.sign(displacements[indices]) * self.rsize
+        if self.ndim == 2:
+            gradw[:,0] *= w[:,1]
+            gradw[:,1] *= w[:,0]
+        elif self.ndim == 3:
+            gradw[:,0] *= w[:,1]*w[:,2]
+            gradw[:,1] *= w[:,0]*w[:,2]
+            gradw[:,2] *= w[:,0]*w[:,1]
+        w = np.prod(w, axis=1)
+        return indices, w, gradw
+
+    def d2w(self, point):
+        displacements = point - self.sim.nodes
+        distances = np.abs(displacements)
+        indices = np.flatnonzero((distances < self.size).all(axis=1)) \
+                                .astype('uint32')
+        w = np.ones((len(indices), self.ndim))
+        dwdr = np.empty(w.shape)
+        d2wdr2 = np.empty(w.shape)
+        for i in range(self.ndim):
+            w[:,i], dwdr[:,i], d2wdr2[:,i] = \
+                self.weightFunction.d2w(distances[indices,i] * self.rsize)
+        gradw = dwdr * np.sign(displacements[indices]) * self.rsize
+        grad2w = d2wdr2 * self.rsize**2
+        if self.ndim == 2:
+            gradw[:,0] *= w[:,1]
+            gradw[:,1] *= w[:,0]
+            grad2w[:,0] *= w[:,1]
+            grad2w[:,1] *= w[:,0]
+        elif self.ndim == 3:
+            gradw[:,0] *= w[:,1]*w[:,2]
+            gradw[:,1] *= w[:,0]*w[:,2]
+            gradw[:,2] *= w[:,0]*w[:,1]
+            grad2w[:,0] *= w[:,1]*w[:,2]
+            grad2w[:,1] *= w[:,0]*w[:,2]
+            grad2w[:,2] *= w[:,0]*w[:,1]
+        w = np.prod(w, axis=1)
+        return indices, w, gradw, grad2w
+
+
 class Basis(metaclass=ABCMeta):
     @property
     @abstractmethod
     def name(self): pass
 
     @abstractmethod
-    def p(self, point): pass
+    def p(self, point):
+        """Compute the basis polynomial values at a given set of points.
+
+        Parameters
+        ----------
+        point : numpy.ndarray, dtype='float64', shape=(n, ndim)
+            Coordinates of evaluation points.
+
+        Returns
+        -------
+        numpy.ndarray, dtype='float64', shape=(n, self.size)
+            Values of basis polynomials at given points.
+
+        """
+        pass
     
     @abstractmethod
-    def dp(self, point): pass
+    def dp(self, point):
+        """Compute the basis polynomial derivatives at a given point.
+
+        Parameters
+        ----------
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of evaluation points.
+
+        Returns
+        -------
+        numpy.ndarray, dtype='float64', shape=(ndim, self.size)
+            Derivatives of basis polynomials at the given point. The rows
+            correspond to different spatial dimensions.
+
+        """
+        pass
+
+    @abstractmethod
+    def d2p(self, point):
+        """Compute the basis polynomial 2nd derivatives at a given point.
+
+        Parameters
+        ----------
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of evaluation points.
+
+        Returns
+        -------
+        numpy.ndarray, dtype='float64', shape=(ndim, self.size)
+            2nd derivatives of basis polynomials at the given point. The rows
+            correspond to different spatial dimensions.
+
+        """
+        pass
 
     def __init__(self, ndim, size):
         self.ndim = ndim
@@ -43,6 +302,7 @@ class LinearBasis(Basis):
             size = ndim + 1
         super().__init__(ndim, size)
         self._dp = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
+        self._d2p = np.zeros((ndim, ndim+1))
 
     def p(self, point):
         point.shape = (-1, self.ndim)
@@ -50,6 +310,9 @@ class LinearBasis(Basis):
     
     def dp(self, point=None):
         return self._dp
+    
+    def d2p(self, point=None):
+        return self._d2p
 
 class QuadraticBasis(Basis):
     @property
@@ -58,7 +321,8 @@ class QuadraticBasis(Basis):
     
     def __init__(self, ndim = 2):
         super().__init__(ndim, ndim + 1 + comb(ndim, 2, True, True))
-        self.dpLinear = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
+        self._dpLinear = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
+        self._d2pLinear = np.zeros((ndim, ndim+1))
 
     def p(self, point):
         point.shape = (-1, self.ndim)
@@ -78,19 +342,30 @@ class QuadraticBasis(Basis):
     def dp(self, point):
         point.shape = (self.ndim,)
         if self.ndim == 1:
-            return np.hstack((self.dpLinear,[2*point]))
+            return np.hstack((self._dpLinear,[2.*point]))
         elif self.ndim == 2:
             x = point[0]
             y = point[1]
-            return np.hstack((self.dpLinear,[[2*x, y,  0 ],
-                                             [ 0 , x, 2*y]]))
+            return np.hstack((self._dpLinear,[[2.*x, y,  0. ],
+                                             [ 0. , x, 2.*y]]))
         elif self.ndim == 3:
             x = point[0]
             y = point[1]
             z = point[2]
-            return np.hstack((self.dpLinear,[[2*x, y, z,  0 , 0,  0 ],
-                                             [ 0 , x, 0, 2*y, z,  0 ],
-                                             [ 0 , 0, x,  0 , y, 2*z]]))
+            return np.hstack((self._dpLinear,[[2.*x, y , z ,  0. , 0.,  0. ],
+                                              [ 0. , x , 0., 2.*y, z ,  0. ],
+                                              [ 0. , 0., x ,  0. , y , 2.*z]]))
+    
+    def d2p(self, point):
+        if self.ndim == 1:
+            return np.hstack((self._d2pLinear, [[2.]]))
+        elif self.ndim == 2:
+            return np.hstack((self._d2pLinear, [[2., 0., 0.],
+                                                [0., 0., 2.]]))
+        elif self.ndim == 3:
+            return np.hstack((self._d2pLinear,[[2., 0., 0., 0., 0., 0.],
+                                               [0., 0., 0., 2., 0., 0.],
+                                               [0., 0., 0., 0., 0., 2.]]))
 
 
 class WeightFunction(metaclass=ABCMeta):
@@ -99,13 +374,64 @@ class WeightFunction(metaclass=ABCMeta):
     def form(self): pass
 
     @abstractmethod
-    def w(self, r): pass
+    def w(self, r):
+        """Compute kernel weight function value.
+    
+        Parameters
+        ----------
+        r : numpy.ndarray, dtype='float64', shape=(n,)
+            Distances from evaluation points to node point.
+    
+        Returns
+        -------
+        w : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of the kernel function at the given distances.
+    
+        """
+        pass
     
     @abstractmethod
-    def dw(self, r): pass
+    def dw(self, r):
+        """Compute kernel weight function value and its radial derivative.
+
+        Parameters
+        ----------
+        r : numpy.ndarray, dtype='float64', shape=(n,)
+            Distances from evaluation points to node point.
+
+        Returns
+        -------
+        w : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of the kernel function at the given distances.
+        dwdr : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of the radial derivative at the given distances.
+
+        """
+        pass
     
     @abstractmethod
-    def d2w(self, r): pass
+    def d2w(self, r):
+        """Compute kernel weight function and its radial derivatives.
+
+        Parameters
+        ----------
+        r : numpy.ndarray, dtype='float64', shape=(n,)
+            Distances from evaluation points to node point.
+
+        Returns
+        -------
+        w : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of the kernel function at the given distances.
+        dwdr : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of the radial derivative at the given distances.
+        d2wdr2 : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of the 2nd order radial derivative at the given distances.
+
+        """
+        pass
+    
+    def __call__(self, r):
+        return self.w(r)
 
 class CubicSpline(WeightFunction):
     @property
@@ -113,19 +439,6 @@ class CubicSpline(WeightFunction):
         return 'cubic'
     
     def w(self, r):
-        """Compute cubic spline function value.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the cubic spline function at the given distances.
-
-        """
         i0 = r < 0.5
         i1 = np.logical_xor(r < 1, i0)
         w = np.zeros(r.size, dtype='float64')
@@ -142,21 +455,6 @@ class CubicSpline(WeightFunction):
         return w
     
     def dw(self, r):
-        """Compute cubic spline function and its radial derivative.
-
-        Parameters
-        ----------
-        r : nieeetrumpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the cubic spline function at the given distances.
-        dwdr : numpy.array([...], dtype='float64')
-            Values of the radial derivative at the given distances.
-
-        """
         i0 = r < 0.5
         i1 = np.logical_xor(r < 1, i0)
         w = np.zeros(r.size, dtype='float64')
@@ -176,23 +474,6 @@ class CubicSpline(WeightFunction):
         return w, dwdr
     
     def d2w(self, r):
-        """Compute cubic spline function and its radial derivatives.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the cubic spline function at the given distances.
-        dwdr : numpy.array([...], dtype='float64')
-            Values of the radial derivative at the given distances.
-        d2wdr2 : numpy.array([...], dtype='float64')
-            Values of the 2nd order radial derivative at the given distances.
-
-        """
         i0 = r < 0.5
         i1 = np.logical_xor(r < 1, i0)
         w = np.zeros(r.size, dtype='float64')
@@ -220,19 +501,6 @@ class QuarticSpline(WeightFunction):
         return 'quartic'
 
     def w(self, r):
-        """Compute quartic spline function values.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the quartic spline function at the given distances.
-
-        """
         i0 = r < 1
         w = np.zeros(r.size, dtype='float64')
         if i0.any():
@@ -244,21 +512,6 @@ class QuarticSpline(WeightFunction):
         return w
     
     def dw(self, r):
-        """Compute quartic spline function and radial derivative values.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the quartic spline function at the given distances.
-        dwdr : numpy.array([...], dtype='float64')
-            Values of the radial derivative at the given distances.
-
-        """
         i0 = r < 1
         w = np.zeros(r.size, dtype='float64')
         dwdr = w.copy()
@@ -272,23 +525,6 @@ class QuarticSpline(WeightFunction):
         return w, dwdr
     
     def d2w(self, r):
-        """Compute quartic spline function and radial derivative values.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the quartic spline function at the given distances.
-        dwdr : numpy.array([...], dtype='float64')
-            Values of the radial derivative at the given distances.
-        d2wdr2 : numpy.array([...], dtype='float64')
-            Values of the 2nd order radial derivative at the given distances.
-
-        """
         i0 = r < 1
         w = np.zeros(r.size, dtype='float64')
         dwdr = w.copy()
@@ -309,19 +545,6 @@ class Gaussian(WeightFunction):
         return 'gaussian'
 
     def w(self, r):
-        """Compute Gaussian function values.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the Gaussian function at the given distances.
-
-        """
         i0 = r < 1
         w = np.zeros(r.size, dtype='float64')
         if i0.any():
@@ -331,21 +554,6 @@ class Gaussian(WeightFunction):
         return w
     
     def dw(self, r):
-        """Compute Gaussian function and radial derivative values.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the Gaussian function at the given distances.
-        dwdr : numpy.array([...], dtype='float64')
-            Values of the radial derivative at the given distances.
-
-        """
         i0 = r < 1
         w = np.zeros(r.size, dtype='float64')
         dwdr = w.copy()
@@ -359,23 +567,6 @@ class Gaussian(WeightFunction):
         return w, dwdr
     
     def d2w(self, r):
-        """Compute Gaussian function and radial derivative values.
-
-        Parameters
-        ----------
-        r : numpy.array([...], dtype='float64')
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.array([...], dtype='float64')
-            Values of the Gaussian function at the given distances.
-        dwdr : numpy.array([...], dtype='float64')
-            Values of the radial derivative at the given distances.
-        d2wdr2 : numpy.array([...], dtype='float64')
-            Values of the 2nd order radial derivative at the given distances.
-
-        """
         i0 = r < 1
         w = np.zeros(r.size, dtype='float64')
         dwdr = w.copy()
@@ -394,59 +585,107 @@ class Gaussian(WeightFunction):
 class MlsSim(metaclass=ABCMeta):
     """Class for meshless moving least squares (MLS) method.
     
-    Parameters
+    Attributes
     ----------
-    N : integer
-        Number of grid cells along one dimension.
-        Must be greater than 0.
-    g : function object
-        Function defining the solution Dirichlet values along the boundary.
-        The object must take an nx2 numpy.ndarray of points and return a
-        1D numpy.ndarray of size n for the function values at those points.
-    Nquad : integer, optional
+    N : int
+        Number of grid cells along one dimension. Must be greater than 0.
+    Nquad : int
         Number of quadrature points in each grid cell along one dimension.
-        Must be > 0 and either 1 or 2 if quadrature is 'gaussian'.
-        The default is 2.
-    support : float, optional
-        The size of the shape function support, given as a multiple of the
-        grid spacing for the given N if the value is positive.
-        Supplying a negative value leads to default support sizes being used,
-        namely 1.8 for quartic splines or 1.9 for cubic splines.
-        The default is -1.
-    form : string, optional
-        Form of the spline used for the kernel weighting function.
-        Must be either 'cubic', 'quartic', or 'gaussian'.
-        The default is 'cubic'.
-    method : string, optional
-        Method used for assembling the stiffness matrix.
-        Must be either 'galerkin' or 'collocation'.
-        The default is 'galerkin'.
-    quadrature : string, optional
+    ndim : int
+        The number of spatial dimensions to simulate.
+    support : Support
+        Object defining shape and size of local shape function domains.
+    form : string
+        Name of the kernel weighting function.
+    weightFunction : WeightFunction
+        Object defining the kernel weighting function computations.
+    basis : Basis
+        Object defining the polynomial basis defining the MLS aproximation.
+    nNodes : int
+        Number of unique nodal points in the simulation domain.
+    nodes : numpy.ndarray, dtype='float64', shape=(..., ndim)
+        Coordinates of all nodes in the simulation.
+    
+    Attributes for Galerkin Assembly
+    --------------------------------
+    quadrature : string
         Distribution of quadrature points in each cell.
-        Must be either 'uniform' or 'gaussian'.
-        The default is 'gaussian'.
+    nQuads : int
+        Number of quadrature points in the simulation domain.
+    quads : numpy.ndarray, dtype='float64', shape=(nQuads, ndim)
+         Coordinates of all quadrature points in the simulation.
+    quadWeight : float
+        Relative weighting of each quadrature point in the numerical sum.
+    
+    Methods
+    -------
+    generateQuadraturePoints(self, quadrature):
+        Compute array of quadrature points for Galerkin integration.
+    selectWeightFunction(self, form):
+        Register the 'self.weightFunction' object to the correct kernel.
+    selectSupport(self, support):
+        Register the 'self.support' object to the correct shape.
+    selectBasis(self, name):
+        Register the 'self.basis' object to the correct basis set.
+    phi(self, point):
+        Compute shape function value evaluated at point.
+    dphi(self, point):
+        Compute shape function value and gradient evaluated at point.
+    d2phi(self, point):
+        Compute shape function value and laplacian evaluated at point.
+    uNodes(self):
+        Return the set of nodes on which the solution is computed.
+    solve(self, *args, **kwargs):
+        Compute the true approximate solution.
+    cond(self, A, M=None, order=2):
+        Compute the condition number of the matrix A preconditioned by M.
     """
     
-    def __init__(self, N, Nquad=2, support=-1, form='cubic', basis='linear',
-                 **kwargs):
+    def __init__(self, N, ndim=2, Nquad=2, support=-1, form='cubic',
+                 basis='linear', **kwargs):
+        """Initialize shared attributes of MLS simulation classes
+
+        Parameters
+        ----------
+        N : integer
+            Number of grid cells along one dimension. Must be greater than 0.
+        Nquad : integer, optional
+            Number of quadrature points in each grid cell along one dimension.
+            Must be > 0 and either 1 or 2 if quadrature is 'gaussian'.
+            The default is 2.
+        support : {float, (string, float), Support}
+            Support size, or (shape, size) pair of the shape function domains, 
+            or Support object. If present, the shape string must be one of 
+            'circular' or 'rectangular'. The default is -1.
+        form : {string, WeightFunction}, optional
+            Form of the spline to be used for the kernel weighting function.
+            If a string, must be either 'cubic', 'quartic', or 'gaussian'.
+            Otherwise a Weightfunction object can be directly specified.
+            The default is 'cubic'.
+        basis : {string, Basis}, optional
+            Complete polynomial basis defining the MLS aproximation.
+            If a string, must be either 'linear' or 'quadratic'.
+            The default is 'linear'.
+        ndim : int, optional
+            The number of spatial dimensions to simulate. The default is 2.
+        **kwargs
+            Extraneous keyword arguments passed by subclass constructor.
+
+        Returns
+        -------
+        None.
+
+        """
         self.N = N
-        self.nCells = N*N
         self.Nquad = Nquad
+        self.ndim = ndim
         self.selectWeightFunction(form)
-        if support > 0:
-            self.support = support/N
-        else: # if support is negative, set to default grid spacing
-            if self.form == 'quartic':
-                self.support = 1.8/N
-            elif self.form == 'cubic':
-                self.support = 1.9/N
-            else: # if form is unkown
-                self.support = 1.5/N
+        self.selectSupport(support)
         self.selectBasis(basis)
     
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N}," \
-               f"{self.Nquad},{self.support*self.N},'{self.form}',"
+               f"{self.Nquad},{self.support.size*self.N},'{self.form}',"
     
     def generateQuadraturePoints(self, quadrature):
         """Compute array of quadrature points for Galerkin integration.
@@ -521,14 +760,51 @@ class MlsSim(metaclass=ABCMeta):
                              f"'cubic', 'quartic', or 'gaussian' or an "
                              f"obect derived from mls.WeightFunction.")
     
+    def selectSupport(self, support):
+        """Register the 'self.support' object to the correct shape.
+        
+        Parameters
+        ----------
+        support : {float, (string, float), Support}
+            Support size or (shape, size) pair of the shape function, or 
+            Support object. If present, the shape string must be one of 
+            'circular' or 'rectangular'.
+
+        Returns
+        -------
+        None.
+
+        """
+        if isinstance(support, Support):
+            self.support = support
+            return
+        if type(support) in [int, float]:
+            if support > 0:
+                self.support = CircularSupport(self, support/self.N)
+            else: # if support size is negative, use a default
+                self.support = CircularSupport(self, 1.8/self.N)
+            return
+        size = support[1] / self.N
+        if size <= 0: # if support size is negative, use a default
+            size = 1.8/self.N
+        if support[0].lower() == 'circular':
+            self.support = CircularSupport(self, size)
+        elif support[0].lower() == 'rectangular':
+            self.support = RectangularSupport(self, size)
+        else:
+            raise SystemExit(f"Unkown support {support}. Must be a numeric "
+                             f"size, one of ('circular', size) or "
+                             f"('rectangular', size), or an obect derived "
+                             f"from mls.Support.")
+    
     def selectBasis(self, name):
         """Register the 'self.basis' object to the correct basis set.
         
         Parameters
         ----------
         name : {string, Basis}
-            Name of the basis used for the shape functions, or Basis object.
-            If a string, it must be either 'linear' or 'quadratic'.
+            Name of the basis to be used for the shape functions, or Basis 
+            object. If a string, it must be either 'linear' or 'quadratic'.
 
         Returns
         -------
@@ -547,29 +823,28 @@ class MlsSim(metaclass=ABCMeta):
             raise SystemExit(f"Unkown basis name '{name}'. Must be either "
                 "'linear' or 'quadratic' or an object derived from mls.Basis.")
     
-    def phi(self, point, nodes):
-        """Compute shape function at quad point for all nodes in its support.
-        Computes the shape function value only (no derivatives).
+    def phi(self, point):
+        """Compute shape function value at given point.
+        Does not compute any derivatives.
     
         Parameters
         ----------
-        point : numpy.array([x,y], dtype='float64')
-            Coordinate of evaluation point.
-        nodes : nx2 numpy.ndarray, dtype='float64'
-            Coordinates of nodes within support of given evaluation point.
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of given evaluation point.
     
         Returns
         -------
-        phi : numpy.array([...], dtype='float64')
-            Values of phi for all nodes in indices.
+        indices : numpy.ndarray, dtype='uint32', shape=(n,)
+            Indices of nodes with non-zero support at evaluation point.
+        phi : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of phi for all nodes in self.nodes[indices].
     
         """
         # --------------------------------------
         #     compute the moment matrix A(x)
         # --------------------------------------
-        distances = la.norm(point - nodes, axis=-1)/self.support
-        w = self.weightFunction.w(distances)
-        p = self.basis(nodes)
+        indices, w = self.support.w(point)
+        p = self.basis(self.nodes[indices])
         A = w*p.T@p
         # --------------------------------------
         #      compute vector c(x) and phi
@@ -580,40 +855,33 @@ class MlsSim(metaclass=ABCMeta):
         lu, piv = la.lu_factor(A, overwrite_a=True, check_finite=False)
         c = la.lu_solve((lu, piv), p_x, overwrite_b=True, check_finite=False)
         phi = c @ p.T * w
-        return phi
+        return indices, phi
     
-    def dphi(self, point, nodes):
-        """Compute shape function at quad point for all nodes in its support.
-        Computes the shape function value and its gradient.
+    def dphi(self, point):
+        """Compute shape function value and gradient at given point.
+        Does not compute second derivatives.
     
         Parameters
         ----------
-        point : numpy.array([x,y], dtype='float64')
-            Coordinate of evaluation point.
-        nodes : nx2 numpy.ndarray, dtype='float64'
-            Coordinates of nodes within support of given evaluation point.
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of given evaluation point.
     
         Returns
         -------
-        phi : numpy.array([...], dtype='float64')
-            Values of phi for all nodes in indices.
-        gradphi : nx2 numpy.ndarray, dtype='float64'
-            Gradients of phi for all nodes in indices. [[dx1,dy1],[dx2,dy2]...]
+        indices : numpy.ndarray, dtype='uint32', shape=(n,)
+            Indices of nodes with non-zero support at evaluation point.
+        phi : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of phi for all n nodes in self.nodes[indices].
+        gradphi : numpy.ndarray, dtype='float64', shape=(n,ndim)
+            Gradients of phi for all n nodes in self.nodes[indices].
+            Has the form numpy.array([[dx1,dy1,dz1],[dx2,dy2,dz2]...])
     
         """
         # --------------------------------------
         #     compute the moment matrix A(x)
         # --------------------------------------
-        displacement = (point - nodes)/self.support
-        distance = np.array(la.norm(displacement, axis=-1))
-        w, dwdr = self.weightFunction.dw(distance)
-        i0 = distance > 1e-14
-        gradr = np.full(nodes.shape, np.sqrt(1.0/self.ndim)/self.support,
-                        dtype='float64')
-        gradr[i0] = displacement[i0] / \
-                    (distance[i0]*self.support).reshape((-1,1))
-        gradw = dwdr.reshape((-1,1)) * gradr
-        p = self.basis(nodes)
+        indices, w, gradw = self.support.dw(point)
+        p = self.basis(self.nodes[indices])
         A = w*p.T@p
         dA = [gradw[:,i]*p.T@p for i in range(self.ndim)]
         # --------------------------------------
@@ -621,7 +889,7 @@ class MlsSim(metaclass=ABCMeta):
         # --------------------------------------
         # A(x)c(x)   = p(x)
         # A(x)c_k(x) = b_k(x)
-        # Backward substitutions, once for c(x), twice for c_k(x) k=1,2
+        # Backward substitutions, once for c(x), ndim times for c_k(x)
         # Using LU factorization for A
         p_x = self.basis(point)[0]
         lu, piv = la.lu_factor(A, check_finite=False)
@@ -637,43 +905,33 @@ class MlsSim(metaclass=ABCMeta):
         cpi = c[0] @ p.T
         phi = cpi * w
         gradphi = ( c[1 : self.ndim + 1]@p.T*w + cpi*gradw.T).T
-        return phi, gradphi
+        return indices, phi, gradphi
     
-    def d2phi(self, point, nodes):
-        """Compute shape function at quad point for all nodes in its support.
-        Basis used is linear basis pT = [1 x y].
-        Computes the shape function value and its 2nd derivatives.
+    def d2phi(self, point):
+        """Compute shape function value and laplacian at given point.
+        Does not compute the 1st order gradient.
     
         Parameters
         ----------
-        point : numpy.array([x,y], dtype='float64')
-            Coordinate of evaluation point.
-        nodes : nx2 numpy.ndarray, dtype='float64'
-            Coordinates of nodes within support of given evaluation point.
+        point : numpy.ndarray, dtype='float64', shape=(ndim,)
+            Coordinates of given evaluation point.
     
         Returns
         -------
-        phi : numpy.array([...], dtype='float64')
-            Values of phi for all nodes in indices.
-        grad2phi : nx2 numpy.ndarray, dtype='float64'
-            2nd derivatives of phi for all nodes in indices.
-            [[dxx1,dyy1],[dxx2,dyy2]...]
+        indices : numpy.ndarray, dtype='uint32', shape=(n,)
+            Indices of nodes with non-zero support at evaluation point.
+        phi : numpy.ndarray, dtype='float64', shape=(n,)
+            Values of phi for all n nodes in self.nodes[indices].
+        grad2phi : numpy.ndarray, dtype='float64', shape=(n,ndim)
+            2nd derivatives of phi for all n nodes in self.nodes[indices].
+            Has the form numpy.array([[dxx1,dyy1,dzz1],[dxx2,dyy2,dzz2]...]).
     
         """
         # --------------------------------------
         #     compute the moment matrix A(x)
         # --------------------------------------
-        displacement = (point - nodes)/self.support
-        distance = np.array(la.norm(displacement, axis=-1))
-        w, dwdr, d2wdr2 = self.weightFunction.d2w(distance)
-        i0 = distance > 1e-14
-        gradr = np.full(nodes.shape, np.sqrt(1.0/self.ndim)/self.support,
-                        dtype='float64')
-        gradr[i0] = displacement[i0] / \
-                    (distance[i0]*self.support).reshape((-1,1))
-        gradw = dwdr.reshape((-1,1)) * gradr
-        grad2w = d2wdr2.reshape((-1,1)) * gradr*gradr
-        p = self.basis(nodes)
+        indices, w, gradw, grad2w = self.support.d2w(point)
+        p = self.basis(self.nodes[indices])
         A = w*p.T@p
         dA = [gradw[:,i]*p.T@p for i in range(self.ndim)]
         d2A = [grad2w[:,i]*p.T@p for i in range(self.ndim)]
@@ -682,8 +940,8 @@ class MlsSim(metaclass=ABCMeta):
         # --------------------------------------
         # A(x)c(x)   = p(x)
         # A(x)c_k(x) = b_k(x)
-        # Backward substitutions, once for c(x), twice for c_k(x) k=1,2
-        # and twice for c_kk(x) k=1,2, using LU factorization for A
+        # Backward substitutions, once for c(x), ndim times for c_k(x)
+        # and ndim times for c_kk(x), using LU factorization for A
         p_x = self.basis(point)[0]
         lu, piv = la.lu_factor(A, check_finite=False)
         c = np.empty((2*self.ndim + 1, self.basis.size), dtype='float64')
@@ -693,8 +951,8 @@ class MlsSim(metaclass=ABCMeta):
                                   (self.basis.dp(point)[i] - dA[i]@c[0]),
                                   check_finite=False )
             c[i+1+self.ndim] = la.lu_solve( (lu, piv),
-                                            (-2.0*dA[i]@c[i+1] - d2A[i]@c[0]),
-                                            check_finite=False )
+                (self.basis.d2p(point)[i] - 2.0*dA[i]@c[i+1] - d2A[i]@c[0]),
+                check_finite=False )
         # --------------------------------------
         #       compute phi and gradphi
         # --------------------------------------
@@ -703,25 +961,7 @@ class MlsSim(metaclass=ABCMeta):
         grad2phi = ( c[self.ndim + 1 : 2*self.ndim + 1]@p.T*w + 
                      2.0*c[1 : self.ndim + 1]@p.T*gradw.T + 
                      cpi*grad2w.T ).T
-        return phi, grad2phi
-    
-    def defineSupport(self, point):
-        """Find nodes within support of a given evaluation point.
-
-        Parameters
-        ----------
-        point : numpy.array([x,y], dtype='float64')
-            Coordinates of given evaluation point.
-
-        Returns
-        -------
-        indices : numpy.array([...], dtype='uint32')
-            Indices of nodes within support of given evaluation point.
-            
-        """
-        distances = la.norm(point - self.nodes, axis=1)
-        indices = np.flatnonzero(distances < self.support).astype('uint32')
-        return indices
+        return indices, phi, grad2phi
     
     def uNodes(self):
         """Return the set of nodes on which the solution is computed.
@@ -736,11 +976,11 @@ class MlsSim(metaclass=ABCMeta):
     
     # @abstractmethod
     def solve(self, *args, **kwargs):
-        """Solve for the approximate solution."""
+        """ABSTRACT METHOD. Compute the true approximate solution."""
         pass
     
     def cond(self, A, M=None, order=2):
-        """Computes the condition number of the matrix A.
+        """Compute the condition number of the matrix A preconditioned by M.
         
         Parameters
         ----------
