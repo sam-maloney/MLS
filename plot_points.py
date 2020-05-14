@@ -35,7 +35,8 @@ kwargs={
     'support' : -1,
     'form' : 'cubic',
     'method' : 'galerkin',
-    'quadrature' : 'uniform' }
+    'quadrature' : 'uniform',
+    'perturbation' : 0 }
 
 # mls = PoissonMlsSim(**kwargs)
 mls = ConvectionDiffusionMlsSim(**kwargs)

@@ -41,8 +41,8 @@ class PoissonMlsSim(mls.MlsSim):
         
     """
    
-    def __init__(self, N, g, method='galerkin', quadrature='uniform',
-                 **kwargs):
+    def __init__(self, N, g, method='galerkin', quadrature='gaussian',
+                 perturbation=0, seed=None, **kwargs):
         """Construct PoissonMlsSim by extending MlsSim constructor
     
         Parameters
@@ -58,7 +58,13 @@ class PoissonMlsSim(mls.MlsSim):
             Must be either 'galerkin' or 'collocation'. Default is 'galerkin'.
         quadrature : string, optional
             Distribution of quadrature points in each cell.
-            Must be either 'uniform' or 'gaussian'. Default is 'uniform'.
+            Must be either 'gaussian' or 'uniform'. Default is 'gaussian'.
+        perturbation : float, optional
+            Max amplitude of random perturbations added to node locations.
+            Size is relative to grid spacing. Default is 0.
+        seed : {None, int, array_like[ints], numpy.random.SeedSequence}, optional
+            A seed to initialize the RNG. If None, then fresh, unpredictable
+            entropy will be pulled from the OS. Default is None.
         **kwargs
             Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
@@ -74,8 +80,16 @@ class PoissonMlsSim(mls.MlsSim):
                        .reshape(2,-1).T ) / N
         self.isBoundaryNode = np.any(np.mod(self.nodes, 1) == 0, axis=1)
         self.nBoundaryNodes = np.count_nonzero(self.isBoundaryNode)
+        self.nInteriorNodes = self.nNodes - self.nBoundaryNodes
+        rng = np.random.Generator(np.random.PCG64(seed))
+        self.nodes[~self.isBoundaryNode] += \
+            rng.uniform(-self.dx*perturbation, self.dx*perturbation,
+                        (self.nInteriorNodes, self.ndim))
+        self.nodes[self.nodes < 0] = 0.
+        self.nodes[self.nodes > 1] = 1.
         self.boundaryValues = g(self.nodes[self.isBoundaryNode]) \
                                 .round(decimals=14)
+        self.boundaryIndices = np.arange(self.nNodes)[self.isBoundaryNode]
         self.g = g
         self.selectMethod(method, quadrature)
     
@@ -106,11 +120,13 @@ class PoissonMlsSim(mls.MlsSim):
         if self.method == 'galerkin':
             self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrix
             self.generateQuadraturePoints(quadrature)
-            self.b = np.concatenate((np.zeros(self.nNodes,dtype='float64'),
-                                     self.boundaryValues))
+            # self.b = np.zeros(self.nNodes,dtype='float64')
+            # self.b[self.isBoundaryNode] = self.boundaryValues
+            self.b = np.concatenate(( np.zeros(self.nNodes),
+                                      self.boundaryValues ))
         elif self.method == 'collocation':
             self.assembleStiffnessMatrix = self.assembleCollocationStiffnessMatrix
-            self.b = np.zeros(self.nNodes,dtype='float64')
+            self.b = np.zeros(self.nNodes)
             self.b[self.isBoundaryNode] = self.boundaryValues
         else:
             print(f"Error: unkown assembly method '{method}'. "
@@ -124,10 +140,40 @@ class PoissonMlsSim(mls.MlsSim):
         None.
 
         """
+        # #### This code applies BCs directly; more ill-conditioned #####
+        # # pre-allocate arrays for stiffness matrix triplets
+        # # these are the maximum possibly required sizes; not all will be used
+        # nMaxEntries = int((self.nNodes * self.support.volume)**2 * self.nQuads)
+        # data = np.zeros(nMaxEntries, dtype='float64')
+        # row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        # col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        # # build matrix for interior nodes
+        # index = 0
+        # for iQ, quad in enumerate(self.quads):
+        #     indices, gradphis = self.dphi(quad)[0:3:2]
+        #     i_inds = indices[~self.isBoundaryNode[indices]] # interior nodes
+        #     nEntries = len(i_inds)*len(indices)
+        #     data[index:index+nEntries] = \
+        #         np.ravel(gradphis[~self.isBoundaryNode[indices]] @ gradphis.T)
+        #     row_ind[index:index+nEntries] = np.repeat(i_inds, len(indices))
+        #     col_ind[index:index+nEntries] = np.tile(indices, len(i_inds))
+        #     index += nEntries
+        # for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+        #     indices, phis = self.phi(node)
+        #     nEntries = len(indices)
+        #     data[index:index+nEntries] = phis
+        #     row_ind[index:index+nEntries] = np.repeat(self.boundaryIndices[iN], nEntries)
+        #     col_ind[index:index+nEntries] = indices
+        #     index += nEntries
+        # inds = np.flatnonzero(data.round(decimals=14,out=data))
+        # # assemble the triplets into the sparse stiffness matrix
+        # self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+        #                         shape=(self.nNodes, self.nNodes) )
+        
         # pre-allocate arrays for stiffness matrix triplets
         # these are the maximum possibly required sizes; not all will be used
         nMaxEntries = int((self.nNodes * self.support.volume)**2 * self.nQuads)
-        data = np.zeros(nMaxEntries, dtype='float64')
+        data = np.zeros(nMaxEntries)
         row_ind = np.zeros(nMaxEntries, dtype='uint32')
         col_ind = np.zeros(nMaxEntries, dtype='uint32')
         # build matrix for interior nodes
@@ -135,7 +181,8 @@ class PoissonMlsSim(mls.MlsSim):
         for iQ, quad in enumerate(self.quads):
             indices, gradphis = self.dphi(quad)[0:3:2]
             nEntries = len(indices)**2
-            data[index:index+nEntries] = np.ravel(gradphis @ gradphis.T)
+            data[index:index+nEntries] = np.ravel(gradphis @ gradphis.T) *\
+                self.quadWeights[iQ]
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
             index += nEntries
@@ -143,26 +190,24 @@ class PoissonMlsSim(mls.MlsSim):
         # assemble the triplets into the sparse stiffness matrix
         self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
                                 shape=(self.nNodes, self.nNodes) )
-        self.K *= self.quadWeight
-        # pre-allocate arrays for additional stiffness matrix triplets
-        # these are the maximum possibly required sizes; not all will be used
+        ##### Apply BCs using Lagrange multipliers #####
         nMaxEntries = int( (self.nNodes * self.support.volume)**2
                           * self.nBoundaryNodes )
-        data = np.zeros(nMaxEntries, dtype='float64')
+        data = np.zeros(nMaxEntries)
         row_ind = np.zeros(nMaxEntries, dtype='uint32')
         col_ind = np.zeros(nMaxEntries, dtype='uint32')
         index = 0
         for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
             indices, phis = self.phi(node)
             nEntries = len(indices)
-            data[index:index+nEntries] = -1.0*phis
+            data[index:index+nEntries] = phis
             row_ind[index:index+nEntries] = indices
             col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
             index += nEntries
         inds = np.flatnonzero(data.round(decimals=14,out=data))
         G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
-                           shape=(self.nNodes, self.nBoundaryNodes) )
-        G *= -1.0
+                            shape=(self.nNodes, self.nBoundaryNodes) )
+        # G *= -1.0
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
     
     def assembleCollocationStiffnessMatrix(self):
@@ -176,7 +221,7 @@ class PoissonMlsSim(mls.MlsSim):
         # pre-allocate arrays for constructing stiffness matrix
         # this is the maximum possibly required size; not all will be used
         nMaxEntries = int(self.nNodes**2 * self.support.volume)
-        data = np.empty(nMaxEntries, dtype='float64')
+        data = np.empty(nMaxEntries)
         indices = np.empty(nMaxEntries, dtype='uint32')
         indptr = np.empty(self.nNodes+1, dtype='uint32')
         index = 0
@@ -224,8 +269,7 @@ class PoissonMlsSim(mls.MlsSim):
             self.M = sp_la.LinearOperator(self.K.shape, Mx)
         elif preconditioner.lower() == 'jacobi':
             if self.method.lower() == 'collocation':
-                self.M = sp_la.inv( sp.diags(
-                    self.K.diagonal(), format='csc', dtype='float64') )
+                self.M = sp_la.inv( sp.diags(self.K.diagonal(), format='csc') )
             else: # if method == 'galerkin'
                 self.M = M
                 print("Error: 'jacobi' preconditioner not compatible with "
@@ -258,7 +302,7 @@ class PoissonMlsSim(mls.MlsSim):
             print(f'solution failed with error code: {self.info}')
         # uTmp = sp_la.spsolve(self.K, self.b) # direct solver for testing
         # reconstruct final u vector from shape functions
-        self.u = np.empty(self.nNodes, dtype='float64')
+        self.u = np.empty(self.nNodes)
         for iN, node in enumerate(self.nodes):
             indices, phis = self.phi(node)
             self.u[iN] = uTmp[indices] @ phis

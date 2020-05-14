@@ -18,6 +18,7 @@ import warnings
 warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
             
 def gaussian(points):
+    # integral for A=1 and sigma=0.1 is 0.25066268375731304228
     A = 1.0
     ndim = points.shape[1]
     r0 = (0.5, 0.5, 0.5)[0:ndim]
@@ -32,74 +33,84 @@ def sinusoid(points):
 
 # N is the number of grid cells along one dimension,
 # therefore the number of nodes equals N*N
-N = 100
-dt = 0.01
-velocity = 0.1
-diffusivity = 0.000015
-# diffusivity = np.array([[0.01]], dtype='float64')
-# velocity = np.array([0.1], dtype='float64')
-print(f'N = {N}\ndt = {dt}\n'
+# N = 200
+# dt = 0.125
+velocity = 1
+diffusivity = 0.
+D = diffusivity
+
+print(
+      # f'N = {N}\n'
+      # f'dt = {dt}\n'
       f'velocity = {velocity}\n'
-      f'diffusivity =\n{diffusivity}')
+      f'diffusivity = {" ".join(repr(diffusivity).split())}')
 
 kwargs={
-    'N' : N,
-    'dt' : dt,
-    'u0' : hat,
+    # 'N' : N,
+    # 'dt' : dt,
+    'u0' : sinusoid,
     'velocity' : velocity,
     'diffusivity' : diffusivity,
     'ndim' : 1,
-    'Nquad' : 3,
-    'support' : 2.9,
-    'form' : 'cubic',
+    'Nquad' : 2,
+    'support' : 1.5,
+    'form' : 'quartic',
     'quadrature' : 'uniform',
-    'basis' : 'quadratic'}
+    'basis' : 'linear'}
 
 precon='ilu'
 tolerance = 1e-10
 
-start_time = default_timer()
-    
-# Initialize simulation
-mlsSim = ConvectionDiffusionMlsSim(**kwargs)
-mlsSim.computeSpatialDiscretization()
-mlsSim.precondition(precon)
+# allocate arrays for convergence testing
+start = 4
+stop = 8
+nSamples = stop - start + 1
+dt_array = np.logspace(start, stop, num=nSamples, base=0.5)
+N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='uint32')
+E_inf = np.empty(nSamples, dtype='float64')
+E_2 = np.empty(nSamples, dtype='float64')
 
-current_time = default_timer()
-print(f'Set-up time = {current_time-start_time} s')
-print('Condition Number =', mlsSim.cond('fro'))
+for i, dt in enumerate(dt_array):
 
-# M = mlsSim.M.A
-# K = mlsSim.K.A
-# A = mlsSim.A.A
-# KA = mlsSim.KA.A
+    N = N_array[i]
+    print(f'\nN  = {N}\ndt = {dt}')
+    kwargs['dt'] = dt
+    kwargs['N'] = N
 
-start_time = default_timer()
-
-mlsSim.step(1000, tol=tolerance, atol=tolerance)
-
-current_time = default_timer()
-print(f'Simulation time = {current_time-start_time} s')
-    
-mlsSim.solve()
-
-# # loop over timesteps 
-# nSteps = 100
-# for iStep in range(nSteps):
-    
+    start_time = default_timer()
         
-# compute the analytic solution and error norms
-u_exact = kwargs['u0'](mlsSim.uNodes())
-E_inf = la.norm(mlsSim.u - u_exact, np.inf)
-E_2 = la.norm(mlsSim.u - u_exact)/N
-print('max error =', E_inf)
-print('L2 error  =', E_2)
+    # Initialize simulation
+    mlsSim = ConvectionDiffusionMlsSim(**kwargs)
+    mlsSim.computeSpatialDiscretization()
+    mlsSim.precondition(precon)
     
-#     current_time = default_timer()
+    current_time = default_timer()
+    print(f'Set-up time [s]     = {current_time-start_time}')
+    # print('Condition Number =', mlsSim.cond('fro'))
     
-#     print(f'Simulation time = {current_time-start_time} s')
+    start_time = default_timer()
     
-##### End of loop over timesteps #####
+    if velocity != 0:
+        mlsSim.step(int(1./dt/abs(velocity)), tol=tolerance, atol=tolerance)
+    else:
+        mlsSim.step(int(1./dt), tol=tolerance, atol=tolerance)
+    
+    current_time = default_timer()
+    print(f'Simulation time [s] = {current_time-start_time}')
+        
+    mlsSim.solve()
+      
+    # compute the analytic solution and error norms
+    u_exact = kwargs['u0'](mlsSim.uNodes())*np.exp(-D*4.0*np.pi**2*mlsSim.time)
+    E_inf[i] = la.norm(mlsSim.u - u_exact, np.inf)
+    # E_inf[i] = np.abs(np.sum(np.abs(mlsSim.u))/N
+    #                    - np.sum(np.abs(kwargs['u0'](mlsSim.uNodes())))/N)
+    #                    - 0.25066268375731304228)
+    E_2[i] = la.norm(mlsSim.u - u_exact)/np.sqrt(N)
+    print('max error =', E_inf[i])
+    print('L2 error  =', E_2[i])
+    
+##### End of loop over dt #####
 
     
     
@@ -108,11 +119,19 @@ print('L2 error  =', E_2)
 # clear the current figure, if opened, and set parameters
 fig = plt.gcf()
 fig.clf()
-fig.set_size_inches(15,7)
-mpl.rc('axes', titlesize='xx-large', labelsize='x-large')
-mpl.rc('xtick', labelsize='large')
-mpl.rc('ytick', labelsize='large')
-# plt.subplots_adjust(hspace = 0.3, wspace = 0.25)
+fig.set_size_inches(7.75,3)
+plt.subplots_adjust(hspace = 0.3, wspace = 0.35)
+
+# SMALL_SIZE = 7
+# MEDIUM_SIZE = 8
+# BIGGER_SIZE = 10
+# plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+# plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
+# plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+# plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+# plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+# plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+# plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 # plot the result
 plt.subplot(121)
@@ -120,56 +139,51 @@ plt.plot(mlsSim.nodes, mlsSim.u[mlsSim.periodicIndices])
 plt.xlim(0.0, 1.0)
 # plt.ylim(0.0, 1.0)
 plt.xlabel(r'$x$')
-plt.ylabel(r'$u$')
-plt.title('Final MLS solution')
+plt.ylabel(r'$u$', rotation=0)
+# plt.title('Final MLS solution')
 plt.margins(0,0)
 
 # # plot error
-difference = mlsSim.u - u_exact
-plt.subplot(122)
-plt.plot(mlsSim.nodes, difference[mlsSim.periodicIndices])
-plt.xlim(0.0, 1.0)
-plt.ylim(-np.max(np.abs(difference)), np.max(np.abs(difference)))
-plt.xlabel(r'$x$')
-plt.ylabel(r'$\mathrm{Difference}$')
-plt.title('Error')
-plt.margins(0,0)
-
-# # plot the error convergence
-# plt.subplot(223)
-# plt.loglog(N_array, E_inf, '.-', label=r'$E_\infty$')
-# plt.loglog(N_array, E_2, '.-', label=r'$E_2$')
-# plt.minorticks_off()
-# plt.xticks(N_array, N_array)
-# plt.xlabel(r'$N$')
-# plt.ylabel(r'Magnitude of Error Norm')
-# plt.title('MLS Error Norms')
-# plt.legend(fontsize='x-large')
-
-# # plot the intra-step order of convergence
-# plt.subplot(224)
-# logN = np.log(N_array)
-# logE_inf = np.log(E_inf)
-# logE_2 = np.log(E_2)
-# order_inf = (logE_inf[0:-1] - logE_inf[1:])/(logN[1:] - logN[0:-1])
-# order_2 = (logE_2[0:-1] - logE_2[1:])/(logN[1:] - logN[0:-1])
-# intraN = np.logspace(start+0.5, stop-0.5, num=nSamples-1, base=2.0)
-# plt.plot(intraN, order_inf, '.-', label=r'$E_\infty$')
-# plt.plot(intraN, order_2, '.-', label=r'$E_2$')
-# plt.plot([N_array[0], N_array[-1]], [2, 2], 'k:', label='Expected')
-# plt.xlim(N_array[0], N_array[-1])
-# plt.xscale('log')
-# plt.minorticks_off()
-# plt.xticks(N_array, N_array)
-# # plt.ylim(1, 3)
-# # plt.yticks([1, 1.5, 2, 2.5, 3])
-# plt.ylim(0, 3)
-# plt.yticks([0, 0.5, 1, 1.5, 2, 2.5, 3])
-# plt.xlabel(r'$N$')
-# plt.ylabel(r'Intra-step Order of Convergence')
-# plt.title('MLS Order of Accuracy')
-# plt.legend(fontsize='x-large')
+# difference = mlsSim.u - u_exact
+# plt.subplot(122)
+# plt.plot(mlsSim.nodes, difference[mlsSim.periodicIndices])
+# plt.xlim(0.0, 1.0)
+# plt.ylim(-np.max(np.abs(difference)), np.max(np.abs(difference)))
+# plt.xlabel(r'$x$')
+# plt.ylabel(r'$\mathrm{Difference}$')
+# # plt.title('Error')
 # plt.margins(0,0)
 
-# # plt.savefig(f"MLS_{method}_{form}_{k}k_{Nquad}Q_{mlsSim.support*mlsSim.N}S.pdf",
-# #     bbox_inches = 'tight', pad_inches = 0)
+# plot the error convergence
+ax1 = plt.subplot(122)
+plt.loglog(dt_array, E_inf, '.-', label=r'$E_\infty$ magnitude')
+plt.loglog(dt_array, E_2, '.-', label=r'$E_2$ magnitude')
+plt.minorticks_off()
+dt_labels = [f'$2^{{-{i}}}$' for i in range(start, stop+1)]
+plt.xticks(dt_array, dt_labels)
+plt.xlabel(r'$dt$')
+plt.ylabel(r'Magnitude of Error Norm')
+
+# plot the intra-step order of convergence
+ax2 = ax1.twinx()
+logdt = np.log(dt_array)
+logE_inf = np.log(E_inf)
+logE_2 = np.log(E_2)
+order_inf = (logE_inf[0:-1] - logE_inf[1:])/(logdt[0:-1] - logdt[1:])
+order_2 = (logE_2[0:-1] - logE_2[1:])/(logdt[0:-1] - logdt[1:])
+intraN = np.logspace(start+0.5, stop-0.5, num=nSamples-1, base=0.5)
+plt.plot(intraN, order_inf, '.:', linewidth=1, label=r'$E_\infty$ order')
+plt.plot(intraN, order_2, '.:', linewidth=1, label=r'$E_2$ order')
+plt.plot(plt.xlim(), [2, 2], 'k:', linewidth=1, label='Expected')
+# plt.ylim(1, 3)
+# plt.yticks([1, 1.5, 2, 2.5, 3])
+plt.ylim(0, 4)
+plt.yticks([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4.0])
+plt.ylabel(r'Intra-step Order of Convergence')
+lines, labels = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax2.legend(lines + lines2, labels + labels2, loc='lower right')
+plt.margins(0,0)
+
+# plt.savefig(f"MLS_{kwargs['basis']}_{kwargs['form']}_{kwargs['Nquad']}Q_{kwargs['support']}S.pdf",
+#     bbox_inches = 'tight', pad_inches = 0)

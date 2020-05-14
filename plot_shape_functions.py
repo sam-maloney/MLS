@@ -38,10 +38,10 @@ kwargs={
     'diffusivity' : diffusivity,
     'ndim' : ndim,
     'Nquad' : 4,
-    'support' : 3.1,
-    'form' : 'quartic',
+    'support' : 1.51,
+    'form' : 'quadratic',
     'quadrature' : 'uniform',
-    'basis' : 'quadratic'}
+    'basis' : 'linear'}
 
 precon='ilu'
 tolerance = 1e-10
@@ -86,6 +86,11 @@ if ndim == 1:
     
     phisToPlot = [int(N/2)]
     # phisToPlot = range(N)
+    phisToPlot = [0]
+    factor = np.sin(2*np.pi*np.arange(0., phis.shape[1])/phis.shape[1])
+    phis = np.sum(factor*phis, axis=1).reshape(-1,1)
+    dphis = np.sum(factor*dphis, axis=1).reshape(-1,1)
+    d2phis = np.sum(factor*d2phis, axis=1).reshape(-1,1)
     
     plt.subplot(1,3,1)
     for i in phisToPlot:

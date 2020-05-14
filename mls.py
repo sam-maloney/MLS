@@ -7,30 +7,33 @@ Created on Fri Jan 17 16:20:15 2020
 
 Classes
 -------
-Support(metaclass=ABCMeta)
-CircularSupport(Support)
-RectangularSupport(Support)
+Support : metaclass=ABCMeta
 
-Basis(metaclass=ABCMeta)
-LinearBasis(Basis)
-QuadraticBasis(Basis)
+CircularSupport : Support
 
-WeightFunction(metaclass=ABCMeta)
-CubicSpline(WeightFunction)
-QuarticSpline(WeightFunction)
-Gaussian(WeightFunction)
+RectangularSupport : Support
 
-MlsSim(metaclass=ABCMeta)
+
+Basis : metaclass=ABCMeta
+
+LinearBasis : Basis
+
+QuadraticBasis : Basis
+
+
+MlsSim : metaclass=ABCMeta
 
 """
 
+import scipy
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as sp
 import scipy.sparse.linalg as sp_la
 
-from scipy.special import comb
 from abc import ABCMeta, abstractmethod
+
+from WeightFunction import *
 
 
 class Support(metaclass=ABCMeta):
@@ -125,7 +128,7 @@ class CircularSupport(Support):
     def __init__(self, mlsSim, size):
         super().__init__(mlsSim, size)
         factor = [2., np.pi, 4.*np.pi/3.][self.ndim-1]
-        self.volume = factor*(self.size + 0.25/mlsSim.N)**self.ndim
+        self.volume = factor*(self.size + 0.5/mlsSim.N)**self.ndim
 
     def w(self, point):
         distances = la.norm(point - self.sim.nodes, axis=1)
@@ -167,7 +170,7 @@ class RectangularSupport(Support):
 
     def __init__(self, mlsSim, size):
         super().__init__(mlsSim, size)
-        self.volume = (2.*(self.size + 0.25/mlsSim.N))**self.ndim
+        self.volume = (2.*(self.size + 0.5/mlsSim.N))**self.ndim
 
     def w(self, point):
         distances = np.abs(point - self.sim.nodes)
@@ -285,10 +288,6 @@ class Basis(metaclass=ABCMeta):
         """
         pass
 
-    def __init__(self, ndim, size):
-        self.ndim = ndim
-        self.size = size
-
     def __call__(self, point):
         return self.p(point)
 
@@ -297,10 +296,9 @@ class LinearBasis(Basis):
     def name(self):
         return 'linear'
     
-    def __init__(self, ndim=2, size=-1):
-        if size < 0:
-            size = ndim + 1
-        super().__init__(ndim, size)
+    def __init__(self, ndim):
+        self.ndim = ndim
+        self.size = ndim + 1
         self._dp = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
         self._d2p = np.zeros((ndim, ndim+1))
 
@@ -319,8 +317,9 @@ class QuadraticBasis(Basis):
     def name(self):
         return 'quadratic'
     
-    def __init__(self, ndim = 2):
-        super().__init__(ndim, ndim + 1 + comb(ndim, 2, True, True))
+    def __init__(self, ndim):
+        self.ndim = ndim
+        self.size = int((ndim+1)*(ndim+2)/2)
         self._dpLinear = np.hstack((np.zeros((ndim,1)), np.eye(ndim)))
         self._d2pLinear = np.zeros((ndim, ndim+1))
 
@@ -347,7 +346,7 @@ class QuadraticBasis(Basis):
             x = point[0]
             y = point[1]
             return np.hstack((self._dpLinear,[[2.*x, y,  0. ],
-                                             [ 0. , x, 2.*y]]))
+                                              [ 0. , x, 2.*y]]))
         elif self.ndim == 3:
             x = point[0]
             y = point[1]
@@ -368,220 +367,6 @@ class QuadraticBasis(Basis):
                                                [0., 0., 0., 0., 0., 2.]]))
 
 
-class WeightFunction(metaclass=ABCMeta):
-    @property
-    @abstractmethod
-    def form(self): pass
-
-    @abstractmethod
-    def w(self, r):
-        """Compute kernel weight function value.
-    
-        Parameters
-        ----------
-        r : numpy.ndarray, dtype='float64', shape=(n,)
-            Distances from evaluation points to node point.
-    
-        Returns
-        -------
-        w : numpy.ndarray, dtype='float64', shape=(n,)
-            Values of the kernel function at the given distances.
-    
-        """
-        pass
-    
-    @abstractmethod
-    def dw(self, r):
-        """Compute kernel weight function value and its radial derivative.
-
-        Parameters
-        ----------
-        r : numpy.ndarray, dtype='float64', shape=(n,)
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.ndarray, dtype='float64', shape=(n,)
-            Values of the kernel function at the given distances.
-        dwdr : numpy.ndarray, dtype='float64', shape=(n,)
-            Values of the radial derivative at the given distances.
-
-        """
-        pass
-    
-    @abstractmethod
-    def d2w(self, r):
-        """Compute kernel weight function and its radial derivatives.
-
-        Parameters
-        ----------
-        r : numpy.ndarray, dtype='float64', shape=(n,)
-            Distances from evaluation points to node point.
-
-        Returns
-        -------
-        w : numpy.ndarray, dtype='float64', shape=(n,)
-            Values of the kernel function at the given distances.
-        dwdr : numpy.ndarray, dtype='float64', shape=(n,)
-            Values of the radial derivative at the given distances.
-        d2wdr2 : numpy.ndarray, dtype='float64', shape=(n,)
-            Values of the 2nd order radial derivative at the given distances.
-
-        """
-        pass
-    
-    def __call__(self, r):
-        return self.w(r)
-
-class CubicSpline(WeightFunction):
-    @property
-    def form(self):
-        return 'cubic'
-    
-    def w(self, r):
-        i0 = r < 0.5
-        i1 = np.logical_xor(r < 1, i0)
-        w = np.zeros(r.size, dtype='float64')
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1*r1
-            r3 = r2*r1
-            w[i0] = 2.0/3.0 - 4.0*r2 + 4.0*r3
-        if i1.any():
-            r1 = r[i1]
-            r2 = r1*r1
-            r3 = r2*r1
-            w[i1] = 4.0/3.0 - 4.0*r1 + 4.0*r2 - 4.0/3.0*r3
-        return w
-    
-    def dw(self, r):
-        i0 = r < 0.5
-        i1 = np.logical_xor(r < 1, i0)
-        w = np.zeros(r.size, dtype='float64')
-        dwdr = w.copy()
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1*r1
-            r3 = r2*r1
-            w[i0] = 2.0/3.0 - 4.0*r2 + 4.0*r3
-            dwdr[i0] = -8.0*r1 + 12.0*r2
-        if i1.any():
-            r1 = r[i1]
-            r2 = r1*r1
-            r3 = r2*r1
-            w[i1] = 4.0/3.0 - 4.0*r1 + 4.0*r2 - 4.0/3.0*r3
-            dwdr[i1] = -4.0 + 8.0*r1 - 4.0*r2
-        return w, dwdr
-    
-    def d2w(self, r):
-        i0 = r < 0.5
-        i1 = np.logical_xor(r < 1, i0)
-        w = np.zeros(r.size, dtype='float64')
-        dwdr = w.copy()
-        d2wdr2 = w.copy()
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1*r1
-            r3 = r2*r1
-            w[i0] = 2.0/3.0 - 4.0*r2 + 4.0*r3
-            dwdr[i0] = -8.0*r1 + 12.0*r2
-            d2wdr2[i0] = -8.0 + 24.0*r1
-        if i1.any():
-            r1 = r[i1]
-            r2 = r1*r1
-            r3 = r2*r1
-            w[i1] = 4.0/3.0 - 4.0*r1 + 4.0*r2 - 4.0/3.0*r3
-            dwdr[i1] = -4.0 + 8.0*r1 - 4.0*r2
-            d2wdr2[i1] = 8.0 - 8.0*r1
-        return w, dwdr, d2wdr2
-
-class QuarticSpline(WeightFunction):
-    @property
-    def form(self):
-        return 'quartic'
-
-    def w(self, r):
-        i0 = r < 1
-        w = np.zeros(r.size, dtype='float64')
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1*r1
-            r3 = r2*r1
-            r4 = r2*r2
-            w[i0] = 1.0 - 6.0*r2 + 8.0*r3 - 3.0*r4
-        return w
-    
-    def dw(self, r):
-        i0 = r < 1
-        w = np.zeros(r.size, dtype='float64')
-        dwdr = w.copy()
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1*r1
-            r3 = r2*r1
-            r4 = r2*r2
-            w[i0] = 1.0 - 6.0*r2 + 8.0*r3 - 3.0*r4
-            dwdr[i0] = -12.0*r1 + 24.0*r2 - 12.0*r3
-        return w, dwdr
-    
-    def d2w(self, r):
-        i0 = r < 1
-        w = np.zeros(r.size, dtype='float64')
-        dwdr = w.copy()
-        d2wdr2 = w.copy()
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1*r1
-            r3 = r2*r1
-            r4 = r2*r2
-            w[i0] = 1.0 - 6.0*r2 + 8.0*r3 - 3.0*r4
-            dwdr[i0] = -12.0*r1 + 24.0*r2 - 12.0*r3
-            d2wdr2[i0] = -12.0 + 48.0*r1 - 36.0*r2
-        return w, dwdr, d2wdr2
-
-class Gaussian(WeightFunction):
-    @property
-    def form(self):
-        return 'gaussian'
-
-    def w(self, r):
-        i0 = r < 1
-        w = np.zeros(r.size, dtype='float64')
-        if i0.any():
-            r2 = r[i0]**2
-            c1 = np.exp(-9.0)
-            w[i0] = (np.exp(-9.0*r2) - c1) / (1.0 - c1)
-        return w
-    
-    def dw(self, r):
-        i0 = r < 1
-        w = np.zeros(r.size, dtype='float64')
-        dwdr = w.copy()
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1**2
-            c1 = np.exp(-9.0)
-            c2 = 1.0/(1.0 - c1)
-            w[i0] = (np.exp(-9.0*r2) - c1) * c2
-            dwdr[i0] = -18.0*r1*np.exp(-9.0*r2) * c2
-        return w, dwdr
-    
-    def d2w(self, r):
-        i0 = r < 1
-        w = np.zeros(r.size, dtype='float64')
-        dwdr = w.copy()
-        d2wdr2 = w.copy()
-        if i0.any():
-            r1 = r[i0]
-            r2 = r1**2
-            c1 = np.exp(-9.0)
-            c2 = 1.0/(1.0 - c1)
-            w[i0] = (np.exp(-9.0*r2) - c1) * c2
-            dwdr[i0] = -18.0*r1*np.exp(-9.0*r2) * c2
-            d2wdr2[i0] = 18.0*np.exp(-9.0*r2)*(18.0*r2-1) * c2
-        return w, dwdr, d2wdr2
-
-
 class MlsSim(metaclass=ABCMeta):
     """Class for meshless moving least squares (MLS) method.
     
@@ -593,6 +378,8 @@ class MlsSim(metaclass=ABCMeta):
         Number of quadrature points in each grid cell along one dimension.
     ndim : int
         The number of spatial dimensions to simulate.
+    dx : float
+        Grid spacing of underlying uniform grid
     support : Support
         Object defining shape and size of local shape function domains.
     form : string
@@ -679,6 +466,7 @@ class MlsSim(metaclass=ABCMeta):
         self.N = N
         self.Nquad = Nquad
         self.ndim = ndim
+        self.dx = 1/N
         self.selectWeightFunction(form)
         self.selectSupport(support)
         self.selectBasis(basis)
@@ -705,30 +493,30 @@ class MlsSim(metaclass=ABCMeta):
         if quadrature.lower() not in ['uniform', 'gaussian']:
             print(f"Error: bad quadrature distribution of '{quadrature}'. "
                   f"Must be either 'uniform' or 'gaussian'. "
-                  f"Defaulting to 'uniform'.")
-        NquadN = self.Nquad*self.N
+                  f"Defaulting to 'gaussian'.")
+            self.quadrature = 'gaussian'
         if (self.Nquad <= 0) and not float(self.Nquad).is_integer():
             raise SystemExit(f"Bad Nquad value of '{self.Nquad}'. "
                              f"Must be an integer greater than 0.")
-        if self.Nquad == 1:
-            self.quads = ( np.indices(np.repeat(self.N, self.ndim),
-                dtype='float64').T.reshape(-1,self.ndim) + 0.5 ) / self.N
-        elif quadrature.lower() == 'gaussian' and self.Nquad == 2:
-            offset = 0.5/(np.sqrt(3.0)*self.N)
-            tmp = ( np.indices(np.repeat(self.N, self.ndim), dtype='float64')
-                    .T.reshape(-1,self.ndim) + 0.5 ) / self.N - offset
-            for i in range(self.ndim):
-                tmp = np.concatenate((
-                    tmp, tmp + 2.0*offset*np.eye(self.ndim)[i] ))
-            self.quads = tmp
+        NquadN = self.Nquad*self.N
+        if quadrature.lower() == 'uniform' or self.Nquad == 1:
+            self.quads = ( np.indices(np.repeat(NquadN, self.ndim),
+                           dtype='float64').T.reshape(-1,self.ndim) ) \
+                         / NquadN + 1.0/(2*NquadN)
+            self.quadWeights = np.repeat(1.0/len(self.quads), len(self.quads))
         elif quadrature.lower() == 'gaussian':
-            raise SystemExit(f"Bad Nquad value of '{self.Nquad}'. Must be "
-                             f"either 1 or 2 for 'gaussian' quadrature.")
-        else: ##### Uniform quadrature for Nquad > 1 #####
-            self.quads = ( np.indices(np.repeat(NquadN, self.ndim))
-                           .T.reshape(-1,self.ndim) ) / NquadN + 1.0/(2*NquadN)
+            offsets, weights = scipy.special.roots_legendre(self.Nquad)
+            offsets /= (2*self.N)
+            weights /= (2*self.N)
+            self.quads = ( np.indices(np.repeat(self.N, self.ndim),
+                dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N
+            self.quadWeights = np.repeat(1., len(self.quads))
+            for i in range(self.ndim):
+                self.quads = np.concatenate( [self.quads + 
+                    offset*np.eye(self.ndim)[i] for offset in offsets] )
+                self.quadWeights = np.concatenate(
+                    [self.quadWeights * weight for weight in weights] )
         self.nQuads = len(self.quads)
-        self.quadWeight = 1.0/self.nQuads
     
     def selectWeightFunction(self, form):
         """Register the 'self.weightFunction' object to the correct kernel.
@@ -749,10 +537,14 @@ class MlsSim(metaclass=ABCMeta):
             self.form = form.form
             return
         self.form = form.lower()
-        if self.form == 'cubic':
+        if self.form == 'quadratic':
+            self.weightFunction = QuadraticSpline()
+        elif self.form == 'cubic':
             self.weightFunction = CubicSpline()
         elif self.form == 'quartic':
             self.weightFunction = QuarticSpline()
+        elif self.form == 'quintic':
+            self.weightFunction = QuinticSpline()
         elif self.form == 'gaussian':
             self.weightFunction = Gaussian()
         else:
@@ -893,7 +685,7 @@ class MlsSim(metaclass=ABCMeta):
         # Using LU factorization for A
         p_x = self.basis(point)[0]
         lu, piv = la.lu_factor(A, check_finite=False)
-        c = np.empty((self.ndim + 1, self.basis.size), dtype='float64')
+        c = np.empty((self.ndim + 1, self.basis.size))
         c[0] = la.lu_solve((lu, piv), p_x, check_finite=False)
         for i in range(self.ndim):
             c[i+1] = la.lu_solve( (lu, piv),
@@ -944,7 +736,7 @@ class MlsSim(metaclass=ABCMeta):
         # and ndim times for c_kk(x), using LU factorization for A
         p_x = self.basis(point)[0]
         lu, piv = la.lu_factor(A, check_finite=False)
-        c = np.empty((2*self.ndim + 1, self.basis.size), dtype='float64')
+        c = np.empty((2*self.ndim + 1, self.basis.size))
         c[0] = la.lu_solve((lu, piv), p_x, check_finite=False)
         for i in range(self.ndim):
             c[i+1] = la.lu_solve( (lu, piv),

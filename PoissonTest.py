@@ -23,19 +23,21 @@ def g(points):
     return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
             
 kwargs={
-    'Nquad' : 2,
-    'support' : ('circular', 1.8),
-    'form' : 'quartic',
+    'Nquad' : 5,
+    'support' : ('circular', 2.5),
+    'form' : 'quintic',
     'method' : 'galerkin',
-    'quadrature' : 'uniform',
-    'basis' : 'linear'}
+    'quadrature' : 'gaussian',
+    # 'perturbation' : 0.25,
+    # 'seed' : 42,
+    'basis' : 'quadratic'}
 
 precon='ilu'
 tolerance = 1e-10
 
 # allocate arrays for convergence testing
 start = 1
-stop = 7
+stop = 5
 nSamples = stop - start + 1
 N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='int32')
 E_inf = np.empty(nSamples, dtype='float64')
@@ -64,7 +66,7 @@ for iN, N in enumerate(N_array):
     
     end_time = default_timer()
     
-    print('Condition Number =', mlsSim.cond('fro'))
+    # print('Condition Number =', mlsSim.cond('fro'))
     
     print('max error =', E_inf[iN])
     print('L2 error  =', E_2[iN])
@@ -82,7 +84,7 @@ print(f'min(E_2)   = {np.min(E_2)}')
 fig = plt.gcf()
 fig.clf()
 fig.set_size_inches(7.75,3)
-plt.subplots_adjust(hspace = 0.3, wspace = 0.2)
+plt.subplots_adjust(hspace = 0.3, wspace = 0.3)
 
 SMALL_SIZE = 7
 MEDIUM_SIZE = 8
@@ -95,14 +97,14 @@ plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
 plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
-# plot the result
-plt.subplot(121)
-plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], mlsSim.u, shading='gouraud')
-plt.colorbar()
-plt.xlabel(r'$x$')
-plt.ylabel(r'$y$', rotation=0)
-# plt.title('Final MLS solution')
-plt.margins(0,0)
+# # plot the result
+# plt.subplot(121)
+# plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], mlsSim.u, shading='gouraud')
+# plt.colorbar()
+# plt.xlabel(r'$x$')
+# plt.ylabel(r'$y$', rotation=0)
+# # plt.title('Final MLS solution')
+# plt.margins(0,0)
 
 # # plot analytic solution
 # plt.subplot(222)
@@ -112,6 +114,22 @@ plt.margins(0,0)
 # plt.ylabel(r'$y$')
 # # plt.title('Analytic solution')
 # plt.margins(0,0)
+
+# # plot error
+difference = mlsSim.u - u_exact
+plt.subplot(121)
+plt.tripcolor(mlsSim.nodes[:,0], mlsSim.nodes[:,1], difference,
+              shading='gouraud',
+              cmap='seismic',
+              vmin=-np.max(np.abs(difference)),
+              vmax=np.max(np.abs(difference)))
+plt.xlim(0.0, 1.0)
+plt.ylim(0.0, 1.0)
+plt.colorbar()
+plt.xlabel(r'$x$')
+plt.ylabel(r'$y$', rotation=0)
+# plt.title('Error')
+plt.margins(0,0)
 
 # plot the error convergence
 ax1 = plt.subplot(122)
@@ -142,6 +160,9 @@ lines, labels = ax1.get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
 ax2.legend(lines + lines2, labels + labels2, loc='best')
 plt.margins(0,0)
+
+# plt.savefig(f"MLS_{kwargs['support'][0]}_{kwargs['method']}.pdf",
+#     bbox_inches = 'tight', pad_inches = 0)
 
 # plt.savefig(f"MLS_{method}_{form}_{k}k_{Nquad}Q_{mlsSim.support*mlsSim.N}S.pdf",
 #     bbox_inches = 'tight', pad_inches = 0)

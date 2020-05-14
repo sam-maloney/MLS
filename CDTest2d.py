@@ -52,7 +52,7 @@ kwargs={
     'diffusivity' : diffusivity,
     'Nquad' : 2,
     'support' : ('circular', 1.8),
-    'form' : 'quartic',
+    'form' : 'gaussian',
     'quadrature' : 'uniform',
     'basis' : 'linear'}
 

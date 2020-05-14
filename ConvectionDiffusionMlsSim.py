@@ -56,7 +56,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     """
     
     def __init__(self, N, dt, u0, velocity, diffusivity,
-                 quadrature='uniform', **kwargs):
+                 quadrature='gaussian', perturbation=0, seed=None, **kwargs):
         """Initialize attributes of ConvectionDiffusion simulation class
         Extends MlsSim.__init__() constructor
     
@@ -79,7 +79,13 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             be converted to diffusivity*np.eye(ndim, dtype='float64').
         quadrature : string, optional
             Distribution of quadrature points in each cell.
-            Must be either 'uniform' or 'gaussian'. Default is 'uniform'.
+            Must be either 'gaussian' or 'uniform'. Default is 'gaussian'.
+        perturbation : float, optional
+            Max amplitude of random perturbations added to node locations.
+            Size is relative to grid spacing. Default is 0.
+        seed : {None, int, array_like[ints], numpy.random.SeedSequence}, optional
+            A seed to initialize the RNG. If None, then fresh, unpredictable
+            entropy will be pulled from the OS. Default is None.
         **kwargs
             Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
@@ -93,6 +99,9 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.nNodes = N**self.ndim
         self.nodes = np.indices(np.repeat(N, self.ndim), dtype='float64') \
                     .reshape(self.ndim,-1).T / N
+        rng = np.random.Generator(np.random.PCG64(seed))
+        self.nodes += rng.uniform(-self.dx*perturbation, self.dx*perturbation,
+                                  self.nodes.shape)
         self.velocity = velocity
         if isinstance(diffusivity, np.ndarray):
             self.diffusivity = diffusivity
@@ -171,7 +180,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             indptr[iN] = index
             index += nEntries
         indptr[-1] = index
-        print(f"{index}/{nMaxEntries} used for u0")
+        # print(f"{index}/{nMaxEntries} used for u0")
         A = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                            shape=(self.nNodes, self.nNodes) )
         self.uI = sp_la.spsolve(A, self.u)
@@ -202,11 +211,12 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         for iQ, quad in enumerate(self.quads):
             indices, phis, gradphis = self.dphi(quad)
             nEntries = len(indices)**2
-            Kdata[index:index+nEntries] = np.ravel(
-                gradphis @ (self.diffusivity @ gradphis.T) )
-            Adata[index:index+nEntries] = np.ravel(
-                np.outer(np.dot(gradphis, self.velocity), phis) )
-            Mdata[index:index+nEntries] = np.ravel(np.outer(phis, phis))
+            Kdata[index:index+nEntries] = self.quadWeights[iQ] * \
+                np.ravel( gradphis @ (self.diffusivity @ gradphis.T) )
+            Adata[index:index+nEntries] = self.quadWeights[iQ] * \
+                np.ravel( np.outer(np.dot(gradphis, self.velocity), phis) )
+            Mdata[index:index+nEntries] = self.quadWeights[iQ] * \
+                np.ravel( np.outer(phis, phis) )
             indices = self.periodicIndices[indices]
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
@@ -214,7 +224,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             # print(quad, indices)
             # if np.any(phis<0):
             #     print('Negative phi value detected!!!!!')
-        print(f"{index}/{nMaxEntries} used for spatial discretization")
+        # print(f"{index}/{nMaxEntries} used for spatial discretization")
         K_inds = np.flatnonzero(Kdata.round(decimals=14, out=Kdata))
         A_inds = np.flatnonzero(Adata.round(decimals=14, out=Adata))
         M_inds = np.flatnonzero(Mdata.round(decimals=14, out=Mdata))
@@ -225,10 +235,6 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                                 shape=(self.nNodes, self.nNodes) )
         self.M = sp.csr_matrix( (Mdata[M_inds], (row_ind[M_inds], col_ind[M_inds])),
                                 shape=(self.nNodes, self.nNodes) )
-        ##### Since the quadWeight is constant, this isn't necessary #####
-        # self.K *= -self.quadWeight
-        # self.A *= self.quadWeight
-        # self.M *= self.quadWeight
         # self.KA = self.K + self.A
         self.KA = self.A - self.K
         self.P = None
