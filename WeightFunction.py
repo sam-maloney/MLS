@@ -50,7 +50,7 @@ class WeightFunction(metaclass=ABCMeta):
         Parameters
         ----------
         r : numpy.ndarray, dtype='float64', shape=(n,)
-            Distances from evaluation points to node point.
+            Distances from evaluation points to node point. Must be positive.
     
         Returns
         -------
@@ -67,7 +67,7 @@ class WeightFunction(metaclass=ABCMeta):
         Parameters
         ----------
         r : numpy.ndarray, dtype='float64', shape=(n,)
-            Distances from evaluation points to node point.
+            Distances from evaluation points to node point. Must be positive.
 
         Returns
         -------
@@ -86,7 +86,7 @@ class WeightFunction(metaclass=ABCMeta):
         Parameters
         ----------
         r : numpy.ndarray, dtype='float64', shape=(n,)
-            Distances from evaluation points to node point.
+            Distances from evaluation points to node point. Must be positive.
 
         Returns
         -------

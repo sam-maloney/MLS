@@ -7,6 +7,7 @@ Created on Fri Jan 17 16:20:15 2020
 """
 
 import mls
+import scipy
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as sp
@@ -27,6 +28,8 @@ class PoissonMlsSim(mls.MlsSim):
         Information on whether a given node is on the Dirichlet boundary.
     nBoundaryNodes : int
         Numer of nodes on the Dirichlet boundary.
+    nInteriorNodes : int
+        Numer of nodes NOT on the Dirichlet boundary.
     boundaryValues : numpy.ndarray, dtype='float64'
         Stored values of g() evaluated at the boundary nodes.
     
@@ -58,7 +61,8 @@ class PoissonMlsSim(mls.MlsSim):
             Must be either 'galerkin' or 'collocation'. Default is 'galerkin'.
         quadrature : string, optional
             Distribution of quadrature points in each cell.
-            Must be either 'gaussian' or 'uniform'. Default is 'gaussian'.
+            Must be one of 'gaussian', 'uniform' or 'vci'.
+            Default is 'gaussian'.
         perturbation : float, optional
             Max amplitude of random perturbations added to node locations.
             Size is relative to grid spacing. Default is 0.
@@ -118,19 +122,107 @@ class PoissonMlsSim(mls.MlsSim):
         """
         self.method = method.lower()
         if self.method == 'galerkin':
-            self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrix
-            self.generateQuadraturePoints(quadrature)
-            # self.b = np.zeros(self.nNodes,dtype='float64')
-            # self.b[self.isBoundaryNode] = self.boundaryValues
-            self.b = np.concatenate(( np.zeros(self.nNodes),
-                                      self.boundaryValues ))
+            if quadrature.lower() == 'vci':
+                self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrixVCI
+            else:
+                self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrix
+                self.generateQuadraturePoints(quadrature)
         elif self.method == 'collocation':
             self.assembleStiffnessMatrix = self.assembleCollocationStiffnessMatrix
-            self.b = np.zeros(self.nNodes)
-            self.b[self.isBoundaryNode] = self.boundaryValues
         else:
             print(f"Error: unkown assembly method '{method}'. "
                   f"Must be one of 'galerkin' or 'collocation'.")
+    
+    def assembleGalerkinStiffnessMatrixVCI(self):
+        """Assemble the Galerkin system stiffness matrix K in CSR format.
+
+        Returns
+        -------
+        None.
+
+        """
+        # pre-allocate arrays for stiffness matrix triplets
+        # these are the maximum possibly required sizes; not all will be used
+        self.nQuads = self.Nquad**self.ndim * self.N**self.ndim
+        nMaxEntries = int((self.nNodes * self.support.volume)**2 * self.nQuads)
+        data = np.zeros(nMaxEntries)
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        # compute Gauss-Legendre quadrature points
+        offsets, weights = scipy.special.roots_legendre(self.Nquad)
+        offsets /= (2*self.N)
+        weights /= (2*self.N)
+        quads = np.zeros((1, self.ndim))
+        quadWeights = np.array([1.])
+        LR = np.vstack((np.repeat(1/(2*self.N), len(offsets)), offsets)).T
+        UD = np.vstack((offsets, np.repeat(1/(2*self.N), len(offsets)))).T
+        for i in range(self.ndim):
+            quads = np.concatenate( [quads + offset*np.eye(self.ndim)[i]
+                                     for offset in offsets] )
+            quadWeights = np.concatenate( [quadWeights * weight
+                                           for weight in weights] )
+        # build matrix for interior nodes
+        index = 0
+        gradphiSums = np.empty((self.nNodes, self.ndim))
+        areas = np.empty(self.nNodes)
+        xis = np.empty((self.nNodes, self.ndim))
+        for iC, cell in enumerate(( np.indices(np.repeat(self.N, self.ndim),
+                dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N):
+            # phiSums = np.zeros(self.nNodes)
+            gradphiSums.fill(0)
+            areas.fill(0)
+            xis.fill(0)
+            store = []
+            for iQ, quad in enumerate(cell + quads):
+                store.append(self.dphi(quad))
+                areas[store[-1][0]] += quadWeights[iQ]
+                # phiSums[store[-1][0]] += store[-1][1]*quadWeights[iQ]
+                gradphiSums[store[-1][0]] += store[-1][2]*quadWeights[iQ]
+            indices = np.flatnonzero(areas)
+            xis[indices] = -gradphiSums[indices] / areas[indices].reshape(-1,1)
+            for iQ, quad in enumerate(cell - LR): # left
+                indices, phis = self.phi(quad)
+                xis[indices, 0] -= phis*weights[iQ] / areas[indices]
+            for iQ, quad in enumerate(cell + LR): # right
+                indices, phis = self.phi(quad)
+                xis[indices, 0] += phis*weights[iQ] / areas[indices]
+            for iQ, quad in enumerate(cell - UD): # down
+                indices, phis = self.phi(quad)
+                xis[indices, 1] -= phis*weights[iQ] / areas[indices]
+            for iQ, quad in enumerate(cell + UD): # up
+                indices, phis = self.phi(quad)
+                xis[indices, 1] += phis*weights[iQ] / areas[indices]
+            for iQ, (indices, phis, gradphis) in enumerate(store):
+                nEntries = len(indices)**2
+                data[index:index+nEntries] = quadWeights[iQ] * \
+                    np.ravel((gradphis + xis[indices]) @ gradphis.T)
+                row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
+                col_ind[index:index+nEntries] = np.tile(indices, len(indices))
+                index += nEntries
+        # assemble the triplets into the sparse stiffness matrix
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                                shape=(self.nNodes, self.nNodes) )
+        ##### Apply BCs using Lagrange multipliers #####
+        nMaxEntries = int( (self.nNodes * self.support.volume)**2
+                          * self.nBoundaryNodes )
+        data = np.zeros(nMaxEntries)
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        index = 0
+        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+            indices, phis = self.phi(node)
+            nEntries = len(indices)
+            data[index:index+nEntries] = phis
+            row_ind[index:index+nEntries] = indices
+            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
+            index += nEntries
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                            shape=(self.nNodes, self.nBoundaryNodes) )
+        # G *= -1.0
+        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
+        self.b = np.concatenate(( np.zeros(self.nNodes), self.boundaryValues ))
     
     def assembleGalerkinStiffnessMatrix(self):
         """Assemble the Galerkin system stiffness matrix K in CSR format.
@@ -169,6 +261,8 @@ class PoissonMlsSim(mls.MlsSim):
         # # assemble the triplets into the sparse stiffness matrix
         # self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
         #                         shape=(self.nNodes, self.nNodes) )
+        # self.b = np.zeros(self.nNodes,dtype='float64')
+        # self.b[self.isBoundaryNode] = self.boundaryValues
         
         # pre-allocate arrays for stiffness matrix triplets
         # these are the maximum possibly required sizes; not all will be used
@@ -209,6 +303,7 @@ class PoissonMlsSim(mls.MlsSim):
                             shape=(self.nNodes, self.nBoundaryNodes) )
         # G *= -1.0
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
+        self.b = np.concatenate(( np.zeros(self.nNodes), self.boundaryValues ))
     
     def assembleCollocationStiffnessMatrix(self):
         """Assemble the collocation system stiffness matrix K in CSR format.
@@ -241,6 +336,8 @@ class PoissonMlsSim(mls.MlsSim):
         indptr[-1] = index
         self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                                 shape=(self.nNodes, self.nNodes) )
+        self.b = np.zeros(self.nNodes)
+        self.b[self.isBoundaryNode] = self.boundaryValues
     
     def precondition(self, preconditioner=None, M=None):
         """Generate and/or store the preconditioning matrix M.

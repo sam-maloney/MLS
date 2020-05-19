@@ -401,7 +401,7 @@ class MlsSim(metaclass=ABCMeta):
         Number of quadrature points in the simulation domain.
     quads : numpy.ndarray, dtype='float64', shape=(nQuads, ndim)
          Coordinates of all quadrature points in the simulation.
-    quadWeight : float
+    quadWeights : numpy.ndarray, dtype='float64', shape=(nQuads,)
         Relative weighting of each quadrature point in the numerical sum.
     
     Methods

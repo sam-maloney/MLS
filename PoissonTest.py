@@ -23,14 +23,14 @@ def g(points):
     return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
             
 kwargs={
-    'Nquad' : 5,
-    'support' : ('circular', 2.5),
-    'form' : 'quintic',
+    'Nquad' : 2,
+    'support' : ('circular', 1.5),
+    'form' : 'quartic',
     'method' : 'galerkin',
-    'quadrature' : 'gaussian',
+    'quadrature' : 'vci',
     # 'perturbation' : 0.25,
     # 'seed' : 42,
-    'basis' : 'quadratic'}
+    'basis' : 'linear'}
 
 precon='ilu'
 tolerance = 1e-10
