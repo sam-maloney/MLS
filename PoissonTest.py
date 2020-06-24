@@ -18,13 +18,38 @@ warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
 
 # wavenumber for boundary function u(x,1) = g(x,y) = sinh(k*pi)
 k = 1
-def g(points):
-    k = 1
-    return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
+def sinSinh(points, f=False):
+    points.shape = (-1,2)
+    if f:
+        return np.repeat(0., len(points))
+    else:
+        k = 1
+        return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
+
+# function for quadratic patch test
+def linearPatch(points, f=False):
+    points.shape = (-1,2)
+    if f:
+        return np.repeat(0., len(points))
+    else:
+        return points[:,0] + 2*points[:,1]
+
+# function for quadratic patch test
+def quadraticPatch(points, f=False):
+    points.shape = (-1,2)
+    if f:
+        return np.repeat(-2.8, len(points))
+    else:
+        x = points[:,0]
+        y = points[:,1]
+        return 0.1*x + 0.8*y + 0.8*x**2 + 1.2*x*y + 0.6*y**2
+
+g = sinSinh
+f = lambda x: g(x, True)
             
 kwargs={
-    'Nquad' : 2,
-    'support' : ('circular', 1.5),
+    'Nquad' : 3,
+    'support' : ('rectangular', 2),
     'form' : 'quartic',
     'method' : 'galerkin',
     'quadrature' : 'vci',
@@ -36,7 +61,7 @@ precon='ilu'
 tolerance = 1e-10
 
 # allocate arrays for convergence testing
-start = 1
+start = 2
 stop = 5
 nSamples = stop - start + 1
 N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='int32')
@@ -53,7 +78,7 @@ for iN, N in enumerate(N_array):
     print('N =', N)
     
     # allocate arrays and compute boundary values
-    mlsSim = PoissonMlsSim(N, g, **kwargs)
+    mlsSim = PoissonMlsSim(N, g, f, **kwargs)
     
     # Assemble the stiffness matrix and solve for the approximate solution
     mlsSim.assembleStiffnessMatrix()
@@ -66,7 +91,7 @@ for iN, N in enumerate(N_array):
     
     end_time = default_timer()
     
-    # print('Condition Number =', mlsSim.cond('fro'))
+    # print('Condition Number =', mlsSim.cond('fro', False))
     
     print('max error =', E_inf[iN])
     print('L2 error  =', E_2[iN])
@@ -86,16 +111,16 @@ fig.clf()
 fig.set_size_inches(7.75,3)
 plt.subplots_adjust(hspace = 0.3, wspace = 0.3)
 
-SMALL_SIZE = 7
-MEDIUM_SIZE = 8
-BIGGER_SIZE = 10
-plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
-plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
-plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
-plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
-plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+# SMALL_SIZE = 7
+# MEDIUM_SIZE = 8
+# BIGGER_SIZE = 10
+# plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+# plt.rc('axes', titlesize=MEDIUM_SIZE)    # fontsize of the axes title
+# plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+# plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+# plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+# plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+# plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 # # plot the result
 # plt.subplot(121)

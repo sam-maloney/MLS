@@ -7,6 +7,7 @@ Created on Fri Jan 17 16:20:15 2020
 """
 
 import mls
+import pyamg
 import scipy
 import numpy as np
 import scipy.linalg as la
@@ -22,6 +23,8 @@ class PoissonMlsSim(mls.MlsSim):
     ----------
     g : function object
         Function defining the solution Dirichlet values along the boundary.
+    f : function object
+        Function defining the forcing term throughout the domain.
     method : string, optional
         Name of method used for assembling the stiffness matrix.
     isBoundaryNode : numpy.ndarray, dtype='bool'
@@ -37,15 +40,13 @@ class PoissonMlsSim(mls.MlsSim):
     -------
     selectMethod(self, method, quadrature)
         Register the 'self.assembleStiffnesMatrix' method.
-    defineSupport(self, point)
-        Find nodes within support of a given evaluation point.
     solve(self, preconditioner=None, **kwargs):
         Solve for the approximate solution using an iterative solver.
         
     """
    
-    def __init__(self, N, g, method='galerkin', quadrature='gaussian',
-                 perturbation=0, seed=None, **kwargs):
+    def __init__(self, N, g, f=lambda x: 0., method='galerkin',
+                 quadrature='gaussian', perturbation=0, seed=None, **kwargs):
         """Construct PoissonMlsSim by extending MlsSim constructor
     
         Parameters
@@ -54,6 +55,10 @@ class PoissonMlsSim(mls.MlsSim):
             Number of grid cells along one dimension. Must be greater than 0.
         g : function object
             Function defining the solution Dirichlet values along the boundary.
+            The object must take an nx2 numpy.ndarray of points and return a
+            1D numpy.ndarray of size n for the function values at those points.
+        f : function object, optional
+            Function defining the forcing term throughout the domain.
             The object must take an nx2 numpy.ndarray of points and return a
             1D numpy.ndarray of size n for the function values at those points.
         method : string, optional
@@ -95,6 +100,7 @@ class PoissonMlsSim(mls.MlsSim):
                                 .round(decimals=14)
         self.boundaryIndices = np.arange(self.nNodes)[self.isBoundaryNode]
         self.g = g
+        self.f = f
         self.selectMethod(method, quadrature)
     
     def __repr__(self):
@@ -103,7 +109,7 @@ class PoissonMlsSim(mls.MlsSim):
                f"support={repr(self.support)}, form='{self.form}', " \
                f"basis='{self.basis.name}')"
     
-    def selectMethod(self, method='galerkin', quadrature='uniform'):
+    def selectMethod(self, method='galerkin', quadrature='gaussian'):
         """Register the 'self.assembleStiffnesMatrix' method.
         
         Parameters
@@ -113,7 +119,7 @@ class PoissonMlsSim(mls.MlsSim):
             Must be either 'galerkin' or 'collocation'. Default is 'galerkin'.
         quadrature : string
             Distribution of quadrature points in each cell.
-            Must be either 'uniform' or 'gaussian'. Default is 'uniform'.
+            Must be either 'uniform' or 'gaussian'. Default is 'gaussian'.
 
         Returns
         -------
@@ -123,12 +129,16 @@ class PoissonMlsSim(mls.MlsSim):
         self.method = method.lower()
         if self.method == 'galerkin':
             if quadrature.lower() == 'vci':
-                self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrixVCI
+                self.assembleStiffnessMatrix = \
+                    self.assembleGalerkinStiffnessMatrixVCI
+                    # self.assembleGalerkinStiffnessMatrixLinearVCI
             else:
-                self.assembleStiffnessMatrix = self.assembleGalerkinStiffnessMatrix
+                self.assembleStiffnessMatrix = \
+                    self.assembleGalerkinStiffnessMatrix
                 self.generateQuadraturePoints(quadrature)
         elif self.method == 'collocation':
-            self.assembleStiffnessMatrix = self.assembleCollocationStiffnessMatrix
+            self.assembleStiffnessMatrix = \
+                self.assembleCollocationStiffnessMatrix
         else:
             print(f"Error: unkown assembly method '{method}'. "
                   f"Must be one of 'galerkin' or 'collocation'.")
@@ -163,6 +173,122 @@ class PoissonMlsSim(mls.MlsSim):
                                            for weight in weights] )
         # build matrix for interior nodes
         index = 0
+        self.b = np.zeros(self.nNodes)
+        A = np.zeros((self.nNodes, 3, 3))
+        r = np.empty((self.nNodes, self.ndim, 3))
+        xi = np.zeros((self.nNodes, self.ndim, 3))
+        for iC, cell in enumerate(( np.indices(np.repeat(self.N, self.ndim),
+                dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N):
+            r.fill(0)
+            store = []
+            if A.any() or r.any() or xi.any():
+                raise SystemExit('Error: temporary arrays not zeroed properly!!!')
+            for iQ, quad in enumerate(cell + quads): # interior
+                indices, phis, gradphis = self.dphi(quad)
+                disps = quad - self.nodes[indices]
+                store.append((indices, phis, gradphis, disps))
+                P = np.hstack((np.ones((len(indices), 1)), disps))
+                A[indices] += quadWeights[iQ] * \
+                    np.apply_along_axis(lambda x: np.outer(x,x), 1, P)
+                r[indices,:,0] -= gradphis * quadWeights[iQ]
+                r[indices,0,1] -= phis * quadWeights[iQ]
+                r[indices,1,2] -= phis * quadWeights[iQ]
+                r[indices,:,1:3] -= quadWeights[iQ] * np.apply_along_axis(
+                    lambda x: np.outer(x[0:2], x[2:4]), 1,
+                    np.hstack((gradphis, disps)))
+                self.b[indices] += self.f(quad) * phis * quadWeights[iQ]
+            for iQ, quad in enumerate(cell - LR): # left
+                indices, phis = self.phi(quad)
+                r[indices,0,0] -= phis * weights[iQ]
+                r[indices,0,1:3] -= phis.reshape(-1,1) * weights[iQ] * \
+                    (quad - self.nodes[indices])
+            for iQ, quad in enumerate(cell + LR): # right
+                indices, phis = self.phi(quad)
+                r[indices,0,0] += phis * weights[iQ]
+                r[indices,0,1:3] += phis.reshape(-1,1) * weights[iQ] * \
+                    (quad - self.nodes[indices])
+            for iQ, quad in enumerate(cell - UD): # down
+                indices, phis = self.phi(quad)
+                r[indices,1,0] -= phis * weights[iQ]
+                r[indices,1,1:3] -= phis.reshape(-1,1) * weights[iQ] * \
+                    (quad - self.nodes[indices])
+            for iQ, quad in enumerate(cell + UD): # up
+                indices, phis = self.phi(quad)
+                r[indices,1,0] += phis * weights[iQ]
+                r[indices,1,1:3] += phis.reshape(-1,1) * weights[iQ] * \
+                    (quad - self.nodes[indices])
+            cell_indices = np.unique(np.concatenate([x[0] for x in store]))
+            for i in cell_indices:
+                lu, piv = la.lu_factor(A[i], True, False)
+                for j in range(self.ndim):
+                    xi[i,j] = la.lu_solve((lu, piv), r[i,j], 0, True, False)
+            for iQ, (indices, phis, gradphis, disps) in enumerate(store):
+                nEntries = len(indices)**2
+                data[index:index+nEntries] = quadWeights[iQ] * \
+                    np.ravel((gradphis + xi[indices,:,0] +
+                              xi[indices,:,1] * disps[:,0:1] +
+                              xi[indices,:,2] * disps[:,1:2]) @ gradphis.T)
+                row_ind[index:index+nEntries] = np.repeat(indices,len(indices))
+                col_ind[index:index+nEntries] = np.tile(indices, len(indices))
+                index += nEntries
+            A[cell_indices] = 0
+            xi[cell_indices] = 0
+        # assemble the triplets into the sparse stiffness matrix
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                                shape=(self.nNodes, self.nNodes) )
+        ##### Apply BCs using Lagrange multipliers #####
+        nMaxEntries = int( (self.nNodes * self.support.volume)**2
+                          * self.nBoundaryNodes )
+        data = np.zeros(nMaxEntries)
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        index = 0
+        for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+            indices, phis = self.phi(node)
+            nEntries = len(indices)
+            data[index:index+nEntries] = phis
+            row_ind[index:index+nEntries] = indices
+            col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
+            index += nEntries
+        inds = np.flatnonzero(data.round(decimals=14,out=data))
+        G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+                            shape=(self.nNodes, self.nBoundaryNodes) )
+        # G *= -1.0
+        self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
+        self.b = np.concatenate(( self.b, self.boundaryValues ))
+    
+    def assembleGalerkinStiffnessMatrixLinearVCI(self):
+        """Assemble the Galerkin system stiffness matrix K in CSR format.
+
+        Returns
+        -------
+        None.
+
+        """
+        # pre-allocate arrays for stiffness matrix triplets
+        # these are the maximum possibly required sizes; not all will be used
+        self.nQuads = self.Nquad**self.ndim * self.N**self.ndim
+        nMaxEntries = int((self.nNodes * self.support.volume)**2 * self.nQuads)
+        data = np.zeros(nMaxEntries)
+        row_ind = np.zeros(nMaxEntries, dtype='uint32')
+        col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        # compute Gauss-Legendre quadrature points
+        offsets, weights = scipy.special.roots_legendre(self.Nquad)
+        offsets /= (2*self.N)
+        weights /= (2*self.N)
+        quads = np.zeros((1, self.ndim))
+        quadWeights = np.array([1.])
+        LR = np.vstack((np.repeat(1/(2*self.N), len(offsets)), offsets)).T
+        UD = np.vstack((offsets, np.repeat(1/(2*self.N), len(offsets)))).T
+        for i in range(self.ndim):
+            quads = np.concatenate( [quads + offset*np.eye(self.ndim)[i]
+                                     for offset in offsets] )
+            quadWeights = np.concatenate( [quadWeights * weight
+                                           for weight in weights] )
+        # build matrix for interior nodes
+        index = 0
+        self.b = np.zeros(self.nNodes)
         gradphiSums = np.empty((self.nNodes, self.ndim))
         areas = np.empty(self.nNodes)
         xis = np.empty((self.nNodes, self.ndim))
@@ -174,29 +300,40 @@ class PoissonMlsSim(mls.MlsSim):
             xis.fill(0)
             store = []
             for iQ, quad in enumerate(cell + quads):
-                store.append(self.dphi(quad))
-                areas[store[-1][0]] += quadWeights[iQ]
-                # phiSums[store[-1][0]] += store[-1][1]*quadWeights[iQ]
-                gradphiSums[store[-1][0]] += store[-1][2]*quadWeights[iQ]
-            indices = np.flatnonzero(areas)
-            xis[indices] = -gradphiSums[indices] / areas[indices].reshape(-1,1)
+                indices, phis, gradphis = self.dphi(quad)
+                store.append((indices, phis, gradphis))
+                areas[indices] += quadWeights[iQ]
+                # phiSums[indices] += phis * quadWeights[iQ]
+                gradphiSums[indices] += gradphis * quadWeights[iQ]
+                self.b[indices] += self.f(quad) * phis * quadWeights[iQ]
+            nonZeroInds = np.flatnonzero(areas)
+            xis[nonZeroInds] = -gradphiSums[nonZeroInds] / \
+                                areas[nonZeroInds].reshape(-1,1)
             for iQ, quad in enumerate(cell - LR): # left
                 indices, phis = self.phi(quad)
-                xis[indices, 0] -= phis*weights[iQ] / areas[indices]
+                boolInds = np.isin(indices, nonZeroInds)
+                indices = indices[boolInds]
+                xis[indices, 0] -= phis[boolInds] * weights[iQ] / areas[indices]
             for iQ, quad in enumerate(cell + LR): # right
                 indices, phis = self.phi(quad)
-                xis[indices, 0] += phis*weights[iQ] / areas[indices]
+                boolInds = np.isin(indices, nonZeroInds)
+                indices = indices[boolInds]
+                xis[indices, 0] += phis[boolInds] * weights[iQ] / areas[indices]
             for iQ, quad in enumerate(cell - UD): # down
                 indices, phis = self.phi(quad)
-                xis[indices, 1] -= phis*weights[iQ] / areas[indices]
+                boolInds = np.isin(indices, nonZeroInds)
+                indices = indices[boolInds]
+                xis[indices, 1] -= phis[boolInds] * weights[iQ] / areas[indices]
             for iQ, quad in enumerate(cell + UD): # up
                 indices, phis = self.phi(quad)
-                xis[indices, 1] += phis*weights[iQ] / areas[indices]
+                boolInds = np.isin(indices, nonZeroInds)
+                indices = indices[boolInds]
+                xis[indices, 1] += phis[boolInds] * weights[iQ] / areas[indices]
             for iQ, (indices, phis, gradphis) in enumerate(store):
                 nEntries = len(indices)**2
                 data[index:index+nEntries] = quadWeights[iQ] * \
                     np.ravel((gradphis + xis[indices]) @ gradphis.T)
-                row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
+                row_ind[index:index+nEntries] = np.repeat(indices,len(indices))
                 col_ind[index:index+nEntries] = np.tile(indices, len(indices))
                 index += nEntries
         # assemble the triplets into the sparse stiffness matrix
@@ -222,7 +359,7 @@ class PoissonMlsSim(mls.MlsSim):
                             shape=(self.nNodes, self.nBoundaryNodes) )
         # G *= -1.0
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
-        self.b = np.concatenate(( np.zeros(self.nNodes), self.boundaryValues ))
+        self.b = np.concatenate(( self.b, self.boundaryValues ))
     
     def assembleGalerkinStiffnessMatrix(self):
         """Assemble the Galerkin system stiffness matrix K in CSR format.
@@ -261,7 +398,7 @@ class PoissonMlsSim(mls.MlsSim):
         # # assemble the triplets into the sparse stiffness matrix
         # self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
         #                         shape=(self.nNodes, self.nNodes) )
-        # self.b = np.zeros(self.nNodes,dtype='float64')
+        # self.b = self.f(self.nodes)
         # self.b[self.isBoundaryNode] = self.boundaryValues
         
         # pre-allocate arrays for stiffness matrix triplets
@@ -270,16 +407,18 @@ class PoissonMlsSim(mls.MlsSim):
         data = np.zeros(nMaxEntries)
         row_ind = np.zeros(nMaxEntries, dtype='uint32')
         col_ind = np.zeros(nMaxEntries, dtype='uint32')
+        self.b = np.zeros(self.nNodes)
         # build matrix for interior nodes
         index = 0
         for iQ, quad in enumerate(self.quads):
-            indices, gradphis = self.dphi(quad)[0:3:2]
+            indices, phis, gradphis = self.dphi(quad)
             nEntries = len(indices)**2
             data[index:index+nEntries] = np.ravel(gradphis @ gradphis.T) *\
                 self.quadWeights[iQ]
             row_ind[index:index+nEntries] = np.repeat(indices, len(indices))
             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
             index += nEntries
+            self.b[indices] += self.f(quad) * phis * self.quadWeights[iQ]
         inds = np.flatnonzero(data.round(decimals=14,out=data))
         # assemble the triplets into the sparse stiffness matrix
         self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
@@ -303,7 +442,7 @@ class PoissonMlsSim(mls.MlsSim):
                             shape=(self.nNodes, self.nBoundaryNodes) )
         # G *= -1.0
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
-        self.b = np.concatenate(( np.zeros(self.nNodes), self.boundaryValues ))
+        self.b = np.concatenate(( self.b, self.boundaryValues ))
     
     def assembleCollocationStiffnessMatrix(self):
         """Assemble the collocation system stiffness matrix K in CSR format.
@@ -329,14 +468,14 @@ class PoissonMlsSim(mls.MlsSim):
             else:
                 inds, d2phis = self.d2phi(node)[0:3:2]
                 nEntries = len(inds)
-                data[index:index+nEntries] = d2phis.sum(axis=1)
+                data[index:index+nEntries] = -d2phis.sum(axis=1)
             indices[index:index+nEntries] = inds
             index += nEntries
         # print(f"{index}/{nMaxEntries} used for spatial discretization")
         indptr[-1] = index
         self.K = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                                 shape=(self.nNodes, self.nNodes) )
-        self.b = np.zeros(self.nNodes)
+        self.b = self.f(self.nodes)
         self.b[self.isBoundaryNode] = self.boundaryValues
     
     def precondition(self, preconditioner=None, M=None):
@@ -360,6 +499,9 @@ class PoissonMlsSim(mls.MlsSim):
         self.preconditioner = preconditioner
         if preconditioner == None:
             self.M = M
+        elif preconditioner.lower() == 'amg':
+            ml = pyamg.ruge_stuben_solver(self.K)
+            self.M = ml.aspreconditioner()
         elif preconditioner.lower() == 'ilu':
             ilu = sp_la.spilu(self.K)
             Mx = lambda x: ilu.solve(x)

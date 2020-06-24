@@ -14,13 +14,13 @@ from WeightFunction import *
 x = np.linspace(-1,1,201)
 
 ##### Values #####
-plt.plot(x, Gaussian()(np.abs(x)), label='Gaussian')
+# plt.plot(x, Gaussian()(np.abs(x)), label='Gaussian')
 plt.plot(x, QuinticSpline()(np.abs(x)), label='quintic')
 plt.plot(x, SimpleQuinticSpline()(np.abs(x)), label='simpleQuintic')
 plt.plot(x, QuarticSpline()(np.abs(x)), label='quartic')
-plt.plot(x, CubicSpline()(np.abs(x)), label='cubic')
-plt.plot(x, QuadraticSpline()(np.abs(x)), label='quadratic')
-plt.plot(x, SimpleCubicSpline()(np.abs(x)), label='simpleCubic')
+# plt.plot(x, CubicSpline()(np.abs(x)), label='cubic')
+# plt.plot(x, QuadraticSpline()(np.abs(x)), label='quadratic')
+# plt.plot(x, SimpleCubicSpline()(np.abs(x)), label='simpleCubic')
 
 
 ##### 1st Derivatives #####
@@ -42,3 +42,5 @@ plt.plot(x, SimpleCubicSpline()(np.abs(x)), label='simpleCubic')
 # plt.plot(x, SimpleCubicSpline().d2w(np.abs(x))[2], label='simpleCubic')
 
 plt.legend()
+
+plt.savefig(f"weight_functions_plot.svg", bbox_inches = 'tight', pad_inches = 0)

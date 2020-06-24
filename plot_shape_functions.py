@@ -38,8 +38,8 @@ kwargs={
     'diffusivity' : diffusivity,
     'ndim' : ndim,
     'Nquad' : 4,
-    'support' : 1.51,
-    'form' : 'quadratic',
+    'support' : 3,
+    'form' : 'quintic',
     'quadrature' : 'uniform',
     'basis' : 'linear'}
 
@@ -84,8 +84,10 @@ if ndim == 1:
     fig.set_size_inches(15,4.5)
     plt.subplots_adjust(hspace = 0.3, wspace = 0.3)
     
-    phisToPlot = [int(N/2)]
+    # phisToPlot = [int(N/2)]
     # phisToPlot = range(N)
+    
+    ##### Use to plot speicfic functions with derivates #####
     phisToPlot = [0]
     factor = np.sin(2*np.pi*np.arange(0., phis.shape[1])/phis.shape[1])
     phis = np.sum(factor*phis, axis=1).reshape(-1,1)

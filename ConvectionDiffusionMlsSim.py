@@ -296,8 +296,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         """
         kwargs["M"] = self.P
         info = 0
-        betas = np.array([0.25, 1.0/3.0, 0.5, 1.0], dtype='float64') ## RK4 ##
-        # betas = np.array([1.0], dtype='float64') ## Forward Euler ##
+        betas = np.array([0.25, 1/3, 0.5, 1]) ## RK4 ##
+        # betas = np.array([1.]) ## Forward Euler ##
         for i in range(nSteps):
             uTemp = self.uI
             for beta in betas:
