@@ -130,8 +130,8 @@ class PoissonMlsSim(mls.MlsSim):
         if self.method == 'galerkin':
             if quadrature.lower() == 'vci':
                 self.assembleStiffnessMatrix = \
-                    self.assembleGalerkinStiffnessMatrixVCI
-                    # self.assembleGalerkinStiffnessMatrixLinearVCI
+                    self.assembleGalerkinStiffnessMatrixLinearVCI
+                    # self.assembleGalerkinStiffnessMatrixVCI
             else:
                 self.assembleStiffnessMatrix = \
                     self.assembleGalerkinStiffnessMatrix
@@ -258,6 +258,121 @@ class PoissonMlsSim(mls.MlsSim):
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
         self.b = np.concatenate(( self.b, self.boundaryValues ))
     
+    # def assembleGalerkinStiffnessMatrixLinearVCI(self):
+    #     """Assemble the Galerkin system stiffness matrix K in CSR format.
+
+    #     Returns
+    #     -------
+    #     None.
+
+    #     """
+    #     # pre-allocate arrays for stiffness matrix triplets
+    #     # these are the maximum possibly required sizes; not all will be used
+    #     self.nQuads = self.Nquad**self.ndim * self.N**self.ndim
+    #     nMaxEntries = int((self.nNodes * self.support.volume)**2 * self.nQuads)
+    #     data = np.zeros(nMaxEntries)
+    #     row_ind = np.zeros(nMaxEntries, dtype='uint32')
+    #     col_ind = np.zeros(nMaxEntries, dtype='uint32')
+    #     # compute Gauss-Legendre quadrature points
+    #     offsets, weights = scipy.special.roots_legendre(self.Nquad)
+    #     offsets /= (2*self.N)
+    #     weights /= (2*self.N)
+    #     quads = np.zeros((1, self.ndim))
+    #     quadWeights = np.array([1.])
+    #     LR = np.vstack((np.repeat(1/(2*self.N), len(offsets)), offsets)).T
+    #     UD = np.vstack((offsets, np.repeat(1/(2*self.N), len(offsets)))).T
+    #     for i in range(self.ndim):
+    #         quads = np.concatenate( [quads + offset*np.eye(self.ndim)[i]
+    #                                  for offset in offsets] )
+    #         quadWeights = np.concatenate( [quadWeights * weight
+    #                                        for weight in weights] )
+    #     # build matrix for interior nodes
+    #     index = 0
+    #     self.b = np.zeros(self.nNodes)
+    #     gradphiSums = np.empty((self.nNodes, self.ndim))
+    #     areas = np.empty(self.nNodes)
+    #     xis = np.empty((self.nNodes, self.ndim))
+    #     for iC, cell in enumerate(( np.indices(np.repeat(self.N, self.ndim),
+    #             dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N):
+    #         # phiSums = np.zeros(self.nNodes)
+    #         gradphiSums.fill(0)
+    #         areas.fill(0)
+    #         xis.fill(0)
+    #         store = []
+    #         for iQ, quad in enumerate(cell + quads):
+    #             indices, phis, gradphis = self.dphi(quad)
+    #             store.append((indices, phis, gradphis))
+    #             areas[indices] += quadWeights[iQ]
+    #             # phiSums[indices] += phis * quadWeights[iQ]
+    #             gradphiSums[indices] += gradphis * quadWeights[iQ]
+    #             self.b[indices] += self.f(quad) * phis * quadWeights[iQ]
+    #         nonZeroInds = np.flatnonzero(areas)
+    #         xis[nonZeroInds] = -gradphiSums[nonZeroInds] / \
+    #                             areas[nonZeroInds].reshape(-1,1)
+    #         # for iQ, quad in enumerate(cell - LR): # left
+    #         #     if quad[0] < 1e-3: continue
+    #         #     indices, phis = self.phi(quad)
+    #         #     boolInds = np.isin(indices, nonZeroInds)
+    #         #     indices = indices[boolInds]
+    #         #     xis[indices, 0] -= phis[boolInds] * weights[iQ] / areas[indices]
+    #         # for iQ, quad in enumerate(cell + LR): # right
+    #         #     if quad[0] > 0.999: continue
+    #         #     indices, phis = self.phi(quad)
+    #         #     boolInds = np.isin(indices, nonZeroInds)
+    #         #     indices = indices[boolInds]
+    #         #     xis[indices, 0] += phis[boolInds] * weights[iQ] / areas[indices]
+    #         # for iQ, quad in enumerate(cell - UD): # down
+    #         #     if quad[1] < 1e-3: continue
+    #         #     indices, phis = self.phi(quad)
+    #         #     boolInds = np.isin(indices, nonZeroInds)
+    #         #     indices = indices[boolInds]
+    #         #     xis[indices, 1] -= phis[boolInds] * weights[iQ] / areas[indices]
+    #         # for iQ, quad in enumerate(cell + UD): # up
+    #         #     if quad[1] > 0.999: continue
+    #         #     indices, phis = self.phi(quad)
+    #         #     boolInds = np.isin(indices, nonZeroInds)
+    #         #     indices = indices[boolInds]
+    #         #     xis[indices, 1] += phis[boolInds] * weights[iQ] / areas[indices]
+            
+    #         # nonInteriorX = (self.nodes[:,0] < self.support.size) \
+    #         #              + (self.nodes[:,0] > (1 - self.support.size))
+    #         # nonInteriorY = (self.nodes[:,1] < self.support.size) \
+    #         #              + (self.nodes[:,1] > (1 - self.support.size))
+    #         # xis[nonInteriorX,0] = 0.
+    #         # xis[nonInteriorY,1] = 0.
+            
+    #         for iQ, (indices, phis, gradphis) in enumerate(store):
+    #             nEntries = len(indices)**2
+    #             data[index:index+nEntries] = quadWeights[iQ] * \
+    #                 np.ravel((gradphis + xis[indices]) @ gradphis.T)
+    #             row_ind[index:index+nEntries] = np.repeat(indices,len(indices))
+    #             col_ind[index:index+nEntries] = np.tile(indices, len(indices))
+    #             index += nEntries
+    #     # assemble the triplets into the sparse stiffness matrix
+    #     inds = np.flatnonzero(data.round(decimals=14,out=data))
+    #     self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+    #                             shape=(self.nNodes, self.nNodes) )
+    #     ##### Apply BCs using Lagrange multipliers #####
+    #     nMaxEntries = int( (self.nNodes * self.support.volume)**2
+    #                       * self.nBoundaryNodes )
+    #     data = np.zeros(nMaxEntries)
+    #     row_ind = np.zeros(nMaxEntries, dtype='uint32')
+    #     col_ind = np.zeros(nMaxEntries, dtype='uint32')
+    #     index = 0
+    #     for iN, node in enumerate(self.nodes[self.isBoundaryNode]):
+    #         indices, phis = self.phi(node)
+    #         nEntries = len(indices)
+    #         data[index:index+nEntries] = phis
+    #         row_ind[index:index+nEntries] = indices
+    #         col_ind[index:index+nEntries] = np.repeat(iN, nEntries)
+    #         index += nEntries
+    #     inds = np.flatnonzero(data.round(decimals=14,out=data))
+    #     G = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),
+    #                         shape=(self.nNodes, self.nBoundaryNodes) )
+    #     # G *= -1.0
+    #     self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
+    #     self.b = np.concatenate(( self.b, self.boundaryValues ))
+    
     def assembleGalerkinStiffnessMatrixLinearVCI(self):
         """Assemble the Galerkin system stiffness matrix K in CSR format.
 
@@ -277,10 +392,15 @@ class PoissonMlsSim(mls.MlsSim):
         offsets, weights = scipy.special.roots_legendre(self.Nquad)
         offsets /= (2*self.N)
         weights /= (2*self.N)
-        quads = np.zeros((1, self.ndim))
-        quadWeights = np.array([1.])
-        LR = np.vstack((np.repeat(1/(2*self.N), len(offsets)), offsets)).T
-        UD = np.vstack((offsets, np.repeat(1/(2*self.N), len(offsets)))).T
+        # quads = np.zeros((1, self.ndim))
+        # quadWeights = np.array([1.])
+        
+        quads = ( np.indices(np.repeat(self.N, self.ndim),
+                dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N
+        quadWeights = np.repeat(1., len(quads))
+        
+        # LR = np.vstack((np.repeat(1/(2*self.N), len(offsets)), offsets)).T
+        # UD = np.vstack((offsets, np.repeat(1/(2*self.N), len(offsets)))).T
         for i in range(self.ndim):
             quads = np.concatenate( [quads + offset*np.eye(self.ndim)[i]
                                      for offset in offsets] )
@@ -289,53 +409,28 @@ class PoissonMlsSim(mls.MlsSim):
         # build matrix for interior nodes
         index = 0
         self.b = np.zeros(self.nNodes)
-        gradphiSums = np.empty((self.nNodes, self.ndim))
-        areas = np.empty(self.nNodes)
-        xis = np.empty((self.nNodes, self.ndim))
-        for iC, cell in enumerate(( np.indices(np.repeat(self.N, self.ndim),
-                dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N):
-            # phiSums = np.zeros(self.nNodes)
-            gradphiSums.fill(0)
-            areas.fill(0)
-            xis.fill(0)
-            store = []
-            for iQ, quad in enumerate(cell + quads):
-                indices, phis, gradphis = self.dphi(quad)
-                store.append((indices, phis, gradphis))
-                areas[indices] += quadWeights[iQ]
-                # phiSums[indices] += phis * quadWeights[iQ]
-                gradphiSums[indices] += gradphis * quadWeights[iQ]
-                self.b[indices] += self.f(quad) * phis * quadWeights[iQ]
-            nonZeroInds = np.flatnonzero(areas)
-            xis[nonZeroInds] = -gradphiSums[nonZeroInds] / \
-                                areas[nonZeroInds].reshape(-1,1)
-            for iQ, quad in enumerate(cell - LR): # left
-                indices, phis = self.phi(quad)
-                boolInds = np.isin(indices, nonZeroInds)
-                indices = indices[boolInds]
-                xis[indices, 0] -= phis[boolInds] * weights[iQ] / areas[indices]
-            for iQ, quad in enumerate(cell + LR): # right
-                indices, phis = self.phi(quad)
-                boolInds = np.isin(indices, nonZeroInds)
-                indices = indices[boolInds]
-                xis[indices, 0] += phis[boolInds] * weights[iQ] / areas[indices]
-            for iQ, quad in enumerate(cell - UD): # down
-                indices, phis = self.phi(quad)
-                boolInds = np.isin(indices, nonZeroInds)
-                indices = indices[boolInds]
-                xis[indices, 1] -= phis[boolInds] * weights[iQ] / areas[indices]
-            for iQ, quad in enumerate(cell + UD): # up
-                indices, phis = self.phi(quad)
-                boolInds = np.isin(indices, nonZeroInds)
-                indices = indices[boolInds]
-                xis[indices, 1] += phis[boolInds] * weights[iQ] / areas[indices]
-            for iQ, (indices, phis, gradphis) in enumerate(store):
-                nEntries = len(indices)**2
-                data[index:index+nEntries] = quadWeights[iQ] * \
-                    np.ravel((gradphis + xis[indices]) @ gradphis.T)
-                row_ind[index:index+nEntries] = np.repeat(indices,len(indices))
-                col_ind[index:index+nEntries] = np.tile(indices, len(indices))
-                index += nEntries
+        gradphiSums = np.zeros((self.nNodes, self.ndim))
+        areas = np.zeros(self.nNodes)
+        xis = np.zeros((self.nNodes, self.ndim))
+        store = []
+        # for iC, cell in enumerate(( np.indices(np.repeat(self.N, self.ndim),
+        #         dtype='float64').T.reshape(-1, self.ndim) + 0.5 ) / self.N):
+        for iQ, quad in enumerate(quads):
+            indices, phis, gradphis = self.dphi(quad)
+            store.append((indices, gradphis, quadWeights[iQ]))
+            areas[indices] += quadWeights[iQ]
+            gradphiSums[indices] += gradphis * quadWeights[iQ]
+            self.b[indices] += self.f(quad) * phis * quadWeights[iQ]
+        
+        xis = -gradphiSums / areas.reshape(-1,1)
+            
+        for iQ, (indices, gradphis, quadWeight) in enumerate(store):
+            nEntries = len(indices)**2
+            data[index:index+nEntries] = quadWeight * \
+                np.ravel((gradphis + xis[indices]) @ gradphis.T)
+            row_ind[index:index+nEntries] = np.repeat(indices,len(indices))
+            col_ind[index:index+nEntries] = np.tile(indices, len(indices))
+            index += nEntries
         # assemble the triplets into the sparse stiffness matrix
         inds = np.flatnonzero(data.round(decimals=14,out=data))
         self.K = sp.csr_matrix( (data[inds], (row_ind[inds], col_ind[inds])),

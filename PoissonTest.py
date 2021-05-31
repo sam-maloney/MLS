@@ -44,17 +44,17 @@ def quadraticPatch(points, f=False):
         y = points[:,1]
         return 0.1*x + 0.8*y + 0.8*x**2 + 1.2*x*y + 0.6*y**2
 
-g = sinSinh
+g = quadraticPatch
 f = lambda x: g(x, True)
             
 kwargs={
-    'Nquad' : 3,
-    'support' : ('rectangular', 2),
+    'Nquad' : 2,
+    'support' : ('circular', 2.1),
     'form' : 'quartic',
     'method' : 'galerkin',
     'quadrature' : 'vci',
-    # 'perturbation' : 0.25,
-    # 'seed' : 42,
+    'perturbation' : 0.1,
+    'seed' : 42,
     'basis' : 'linear'}
 
 precon='ilu'

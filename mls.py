@@ -426,6 +426,7 @@ class MlsSim(metaclass=ABCMeta):
         Compute the true approximate solution.
     cond(self, A, M=None, order=2):
         Compute the condition number of the matrix A preconditioned by M.
+        
     """
     
     def __init__(self, N, ndim=2, Nquad=2, support=-1, form='cubic',
@@ -438,8 +439,7 @@ class MlsSim(metaclass=ABCMeta):
             Number of grid cells along one dimension. Must be greater than 0.
         Nquad : integer, optional
             Number of quadrature points in each grid cell along one dimension.
-            Must be > 0 and either 1 or 2 if quadrature is 'gaussian'.
-            The default is 2.
+            Must be > 0. The default is 2.
         support : {float, (string, float), Support}
             Support size, or (shape, size) pair of the shape function domains, 
             or Support object. If present, the shape string must be one of 
@@ -537,7 +537,9 @@ class MlsSim(metaclass=ABCMeta):
             self.form = form.form
             return
         self.form = form.lower()
-        if self.form == 'quadratic':
+        if self.form == 'linear':
+            self.weightFunction = LinearSpline()
+        elif self.form == 'quadratic':
             self.weightFunction = QuadraticSpline()
         elif self.form == 'cubic':
             self.weightFunction = CubicSpline()

@@ -103,6 +103,38 @@ class WeightFunction(metaclass=ABCMeta):
     def __call__(self, r):
         return self.w(r)
 
+class LinearSpline(WeightFunction):
+    @property
+    def form(self):
+        return 'linear'
+    
+    def w(self, r):
+        i0 = r <= 1
+        w = np.zeros(r.size)
+        if i0.any():
+            w[i0] = 1 - r[i0]
+        return w
+    
+    def dw(self, r):
+        i0 = r <= 1
+        w = np.zeros(r.size)
+        dwdr = w.copy()
+        if i0.any():
+            w[i0] = 1 - r[i0]
+            dwdr[i0] = -1.
+        return w, dwdr
+    
+    def d2w(self, r):
+        i0 = r <= 1
+        w = np.zeros(r.size)
+        dwdr = w.copy()
+        d2wdr2 = w.copy()
+        if i0.any():
+            w[i0] = 1 - r[i0]
+            dwdr[i0] = -1.
+            d2wdr2[i0] = 0.
+        return w, dwdr, d2wdr2
+
 class QuadraticSpline(WeightFunction):
     @property
     def form(self):

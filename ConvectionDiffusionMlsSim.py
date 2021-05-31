@@ -20,10 +20,12 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     
     Attributes
     ----------
-    velocity : np.array([vx,vy], dtype='float64')
+    velocity : np.array([vx,vy,vz], dtype='float64')
         Background velocity of the fluid.
-    diffusivity : float
+    diffusivity : {numpy.ndarray, float}
         Diffusion coefficient for the quantity of interest.
+        If an array, it must have shape (ndim,ndim). If a float, it will
+        be converted to diffusivity*np.eye(ndim, dtype='float64').
     dt : float
         Time interval between each successive timestep.
     timestep : int
@@ -53,6 +55,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         Reconstruct the final solution vector, u, from shape functions.
     cond(self, order=2):
         Compute the condition number of the (preconditioned) mass matrix M.
+        
     """
     
     def __init__(self, N, dt, u0, velocity, diffusivity,
@@ -162,8 +165,8 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             except:
                 raise SystemExit(f"u0 must be an array of shape "
                     f"({self.nNodes},) or a function returning such an array "
-                    f"and taking as input the array of (x,y) node coordinates "
-                    f"with shape ({self.nNodes}, 2).")
+                    f"and taking as input the array of node coordinates "
+                    f"with shape ({self.nNodes}, {self.ndim}).")
         # pre-allocate arrays for constructing matrix equation for uI
         # this is the maximum possibly required size; not all will be used
         nMaxEntries = int( self.support.volume * (self.N+1)**self.ndim
