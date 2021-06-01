@@ -44,15 +44,16 @@ def quadraticPatch(points, f=False):
         y = points[:,1]
         return 0.1*x + 0.8*y + 0.8*x**2 + 1.2*x*y + 0.6*y**2
 
-g = quadraticPatch
+g = sinSinh
 f = lambda x: g(x, True)
             
 kwargs={
-    'Nquad' : 2,
-    'support' : ('circular', 2.1),
+    'Nquad' : 3,
+    'support' : ('circular', 2.6),
     'form' : 'quartic',
     'method' : 'galerkin',
-    'quadrature' : 'vci',
+    'quadrature' : 'gaussian',
+    'vci' : 'linear',
     'perturbation' : 0.1,
     'seed' : 42,
     'basis' : 'linear'}
@@ -62,7 +63,7 @@ tolerance = 1e-10
 
 # allocate arrays for convergence testing
 start = 2
-stop = 5
+stop = 7
 nSamples = stop - start + 1
 N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='int32')
 E_inf = np.empty(nSamples, dtype='float64')
@@ -81,7 +82,7 @@ for iN, N in enumerate(N_array):
     mlsSim = PoissonMlsSim(N, g, f, **kwargs)
     
     # Assemble the stiffness matrix and solve for the approximate solution
-    mlsSim.assembleStiffnessMatrix()
+    mlsSim.assembleStiffnessMatrix(vci=True)
     mlsSim.solve(preconditioner=precon, tol=tolerance, atol=tolerance)
     
     # compute the analytic solution and error norms
@@ -176,10 +177,10 @@ intraN = np.logspace(start+0.5, stop-0.5, num=nSamples-1, base=2.0)
 plt.plot(intraN, order_inf, '.:', linewidth=1, label=r'$E_\infty$ order')
 plt.plot(intraN, order_2, '.:', linewidth=1, label=r'$E_2$ order')
 plt.plot(plt.xlim(), [2, 2], 'k:', linewidth=1, label='Expected')
-# plt.ylim(1, 3)
-# plt.yticks([1, 1.5, 2, 2.5, 3])
-plt.ylim(0, 3)
-plt.yticks([0, 0.5, 1, 1.5, 2, 2.5, 3])
+plt.ylim(1, 4)
+plt.yticks([1, 1.5, 2, 2.5, 3, 3.5, 4])
+# plt.ylim(0, 3)
+# plt.yticks([0, 0.5, 1, 1.5, 2, 2.5, 3])
 plt.ylabel(r'Intra-step Order of Convergence')
 lines, labels = ax1.get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
