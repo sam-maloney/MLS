@@ -44,7 +44,7 @@ def quadraticPatch(points, f=False):
         y = points[:,1]
         return 0.1*x + 0.8*y + 0.8*x**2 + 1.2*x*y + 0.6*y**2
 
-g = sinSinh
+g = quadraticPatch
 f = lambda x: g(x, True)
             
 kwargs={
@@ -63,7 +63,7 @@ tolerance = 1e-10
 
 # allocate arrays for convergence testing
 start = 2
-stop = 7
+stop = 5
 nSamples = stop - start + 1
 N_array = np.logspace(start, stop, num=nSamples, base=2, dtype='int32')
 E_inf = np.empty(nSamples, dtype='float64')

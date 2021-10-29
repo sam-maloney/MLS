@@ -8,7 +8,7 @@ Created on Fri Jan 17 16:20:15 2020
 
 import mls
 import pyamg
-import scipy
+# import scipy
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as sp
@@ -257,7 +257,6 @@ class PoissonMlsSim(mls.MlsSim):
         # build matrix for interior nodes
         index = 0
         self.b = np.zeros(self.nNodes)
-        gradphiSums = np.zeros((self.nNodes, self.ndim))
         areas = np.zeros(self.nNodes)
         xis = np.zeros((self.nNodes, self.ndim))
         store = []
@@ -266,10 +265,10 @@ class PoissonMlsSim(mls.MlsSim):
             quadWeight = self.quadWeights[iQ]
             store.append((indices, gradphis, quadWeight))
             areas[indices] += quadWeight
-            gradphiSums[indices] += gradphis * quadWeight
+            xis[indices] -= gradphis * quadWeight
             self.b[indices] += self.f(quad) * phis * quadWeight
         if vci:
-            xis = -gradphiSums / areas.reshape(-1,1)
+            xis /= areas.reshape(-1,1)
         else: # removes VCI correction for testing standard quadrature
             xis.fill(0.)
         for (indices, gradphis, quadWeight) in store:
