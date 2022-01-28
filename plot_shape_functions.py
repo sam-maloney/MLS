@@ -25,7 +25,7 @@ def hat(points):
 n = 100
 ndim = 1
 
-N = 18
+N = 10
 dt = 0.1
 velocity = np.array([0.1, 0.1, 0.1], dtype='float64')[0:ndim]
 diffusivity = 0.0*np.eye(ndim)
@@ -38,10 +38,10 @@ kwargs={
     'diffusivity' : diffusivity,
     'ndim' : ndim,
     'Nquad' : 4,
-    'support' : 3,
-    'form' : 'quintic',
+    'support' : 1.5,
+    'form' : 'cubic',
     'quadrature' : 'uniform',
-    'basis' : 'linear'}
+    'basis' : 'quadratic'}
 
 precon='ilu'
 tolerance = 1e-10
@@ -87,12 +87,12 @@ if ndim == 1:
     # phisToPlot = [int(N/2)]
     # phisToPlot = range(N)
     
-    ##### Use to plot speicfic functions with derivates #####
-    phisToPlot = [0]
-    factor = np.sin(2*np.pi*np.arange(0., phis.shape[1])/phis.shape[1])
-    phis = np.sum(factor*phis, axis=1).reshape(-1,1)
-    dphis = np.sum(factor*dphis, axis=1).reshape(-1,1)
-    d2phis = np.sum(factor*d2phis, axis=1).reshape(-1,1)
+    ##### Use to plot specific functions with derivates #####
+    phisToPlot = [N//2]
+    # factor = np.sin(2*np.pi*np.arange(0., phis.shape[1])/phis.shape[1])
+    # phis = np.sum(factor*phis, axis=1).reshape(-1,1)
+    # dphis = np.sum(factor*dphis, axis=1).reshape(-1,1)
+    # d2phis = np.sum(factor*d2phis, axis=1).reshape(-1,1)
     
     plt.subplot(1,3,1)
     for i in phisToPlot:

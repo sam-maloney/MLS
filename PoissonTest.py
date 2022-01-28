@@ -26,7 +26,7 @@ def sinSinh(points, f=False):
         k = 1
         return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
 
-# function for quadratic patch test
+# function for linear patch test
 def linearPatch(points, f=False):
     points.shape = (-1,2)
     if f:
@@ -44,17 +44,17 @@ def quadraticPatch(points, f=False):
         y = points[:,1]
         return 0.1*x + 0.8*y + 0.8*x**2 + 1.2*x*y + 0.6*y**2
 
-g = quadraticPatch
+g = sinSinh
 f = lambda x: g(x, True)
             
 kwargs={
-    'Nquad' : 3,
-    'support' : ('circular', 2.6),
-    'form' : 'quartic',
+    'Nquad' : 2,
+    'support' : ('rectangular', 1.02),
+    'form' : 'cubic',
     'method' : 'galerkin',
     'quadrature' : 'gaussian',
     'vci' : 'linear',
-    'perturbation' : 0.1,
+    'perturbation' : 0.,
     'seed' : 42,
     'basis' : 'linear'}
 
@@ -82,7 +82,7 @@ for iN, N in enumerate(N_array):
     mlsSim = PoissonMlsSim(N, g, f, **kwargs)
     
     # Assemble the stiffness matrix and solve for the approximate solution
-    mlsSim.assembleStiffnessMatrix(vci=True)
+    mlsSim.assembleStiffnessMatrix(vci=False)
     mlsSim.solve(preconditioner=precon, tol=tolerance, atol=tolerance)
     
     # compute the analytic solution and error norms

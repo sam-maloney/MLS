@@ -549,6 +549,8 @@ class MlsSim(metaclass=ABCMeta):
             self.weightFunction = QuinticSpline()
         elif self.form == 'gaussian':
             self.weightFunction = Gaussian()
+        elif self.form == 'bump':
+            self.weightFunction = Bump()
         else:
             raise SystemExit(f"Unkown spline form '{form}'. Must be one of "
                              f"'cubic', 'quartic', or 'gaussian' or an "

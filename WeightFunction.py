@@ -31,8 +31,12 @@ QuinticSpline : WeightFunction
     .. math:: w(r) = -6r^5 + 15r^4 - 10r^3 + 1
 SimpleQuinticSpline : WeightFunction
     .. math:: w(r) = -6r^5 + 15r^4 - 10r^3 + 1
+GenericSpline : WeightFunction
+    .. math:: w(r) = (1 - r^2)^n
 Gaussian : WeightFunction
-    .. math:: w(r) = \\frac{\\exp(-9r^2) - \\exp(-9)}{1.0 - \\exp(-9)}
+    .. math:: w(r) = \\frac{\\exp(-9r^2) - \\exp(-9)}{1 - \\exp(-9)}
+Bump : WeightFunction
+    .. math:: w(r) = \\exp(\\frac{-1}{1 - r^2})
 """
 
 from abc import ABCMeta, abstractmethod
@@ -405,9 +409,46 @@ class SimpleQuinticSpline(WeightFunction):
             d2wdr2[i0] = -160/3*r3 + 60*r2 - 20/3
         return w, dwdr, d2wdr2
 
+class GenericSpline(WeightFunction):
+    @property
+    def form(self):
+        return 'generic'
+    
+    def __init__(self, n=1):
+        self.n = n
+
+    def w(self, r):
+        i0 = r < 1
+        w = np.zeros(r.size)
+        if i0.any():
+            w[i0] = (1 - r[i0]**2)**self.n
+        return w
+    
+    def dw(self, r):
+        i0 = r < 1
+        w = np.zeros(r.size)
+        dwdr = w.copy()
+        if i0.any():
+            r1 = r[i0]; r2 = r1*r1;
+            w[i0] = (1 - r2)**self.n
+            dwdr[i0] = -2*self.n*r1*(1 - r2)**(self.n-1)
+        return w, dwdr
+    
+    def d2w(self, r):
+        i0 = r < 1
+        w = np.zeros(r.size)
+        dwdr = w.copy()
+        d2wdr2 = w.copy()
+        if i0.any():
+            r1 = r[i0]; r2 = r1*r1;
+            w[i0] = (1 - r2)**self.n
+            dwdr[i0] = -2*self.n*r1*(1 - r2)**(self.n-1)
+            d2wdr2[i0] = 2*self.n*((2*self.n-1)*r2 - 1)*(1 - r2)**2
+        return w, dwdr, d2wdr2
+
 class Gaussian(WeightFunction):
-    c1 = np.exp(-9.0)
-    c2 = 1.0/(1.0 - np.exp(-9.0))
+    c1 = np.exp(-9)
+    c2 = 1/(1 - np.exp(-9))
     
     @property
     def form(self):
@@ -418,7 +459,7 @@ class Gaussian(WeightFunction):
         w = np.zeros(r.size)
         if i0.any():
             r2 = r[i0]**2
-            w[i0] = (np.exp(-9.0*r2) - self.c1) / (1.0 - self.c1)
+            w[i0] = (np.exp(-9*r2) - self.c1) / (1 - self.c1)
         return w
     
     def dw(self, r):
@@ -427,8 +468,8 @@ class Gaussian(WeightFunction):
         dwdr = w.copy()
         if i0.any():
             r1 = r[i0]; r2 = r1**2
-            w[i0] = (np.exp(-9.0*r2) - self.c1) * self.c2
-            dwdr[i0] = -18.0*r1*np.exp(-9.0*r2) * self.c2
+            w[i0] = (np.exp(-9*r2) - self.c1) * self.c2
+            dwdr[i0] = -18*r1*np.exp(-9*r2) * self.c2
         return w, dwdr
     
     def d2w(self, r):
@@ -438,7 +479,45 @@ class Gaussian(WeightFunction):
         d2wdr2 = w.copy()
         if i0.any():
             r1 = r[i0]; r2 = r1**2
-            w[i0] = (np.exp(-9.0*r2) - self.c1) * self.c2
-            dwdr[i0] = -18.0*r1*np.exp(-9.0*r2) * self.c2
-            d2wdr2[i0] = 18.0*np.exp(-9.0*r2)*(18.0*r2-1) * self.c2
+            w[i0] = (np.exp(-9*r2) - self.c1) * self.c2
+            dwdr[i0] = -18*r1*np.exp(-9*r2) * self.c2
+            d2wdr2[i0] = 18*np.exp(-9*r2)*(18*r2-1) * self.c2
+        return w, dwdr, d2wdr2
+    
+class Bump(WeightFunction):
+    
+    @property
+    def form(self):
+        return 'bump'
+
+    def w(self, r):
+        i0 = r < 1
+        w = np.zeros(r.size)
+        if i0.any():
+            w[i0] = np.exp(1 - 1/(1 - r[i0]**2))
+        return w
+    
+    def dw(self, r):
+        i0 = r < 1
+        w = np.zeros(r.size)
+        dwdr = w.copy()
+        if i0.any():
+            r1 = r[i0]; r2 = r1**2
+            tmp = -1/(1 - r2)
+            w[i0] = np.exp(tmp + 1)
+            dwdr[i0] = w[i0]*(-2*r1)*tmp**2
+        return w, dwdr
+    
+    def d2w(self, r):
+        i0 = r < 1
+        w = np.zeros(r.size)
+        dwdr = w.copy()
+        d2wdr2 = w.copy()
+        if i0.any():
+            r1 = r[i0]; r2 = r1**2
+            tmp1 = -1/(1 - r2)
+            w[i0] = np.exp(tmp1 + 1)
+            tmp2 = tmp1**2
+            dwdr[i0] = w[i0]*(-2*r1)*tmp2
+            d2wdr2[i0] = w[i0]*(6*r2**2 - 2)*tmp2**2
         return w, dwdr, d2wdr2
