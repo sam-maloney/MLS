@@ -2,7 +2,7 @@
 """
 Created on Wed May  6 16:55:16 2020
 
-@author: samal
+@author: Samuel A. Maloney
 
 Classes
 -------
@@ -50,20 +50,20 @@ class WeightFunction(metaclass=ABCMeta):
     @abstractmethod
     def w(self, r):
         """Compute kernel weight function value.
-    
+
         Parameters
         ----------
         r : numpy.ndarray, dtype='float64', shape=(n,)
             Distances from evaluation points to node point. Must be positive.
-    
+
         Returns
         -------
         w : numpy.ndarray, dtype='float64', shape=(n,)
             Values of the kernel function at the given distances.
-    
+
         """
         pass
-    
+
     @abstractmethod
     def dw(self, r):
         """Compute kernel weight function value and its radial derivative.
@@ -82,7 +82,7 @@ class WeightFunction(metaclass=ABCMeta):
 
         """
         pass
-    
+
     @abstractmethod
     def d2w(self, r):
         """Compute kernel weight function and its radial derivatives.
@@ -103,7 +103,7 @@ class WeightFunction(metaclass=ABCMeta):
 
         """
         pass
-    
+
     def __call__(self, r):
         return self.w(r)
 
@@ -111,14 +111,14 @@ class LinearSpline(WeightFunction):
     @property
     def form(self):
         return 'linear'
-    
+
     def w(self, r):
         i0 = r <= 1
         w = np.zeros(r.size)
         if i0.any():
             w[i0] = 1 - r[i0]
         return w
-    
+
     def dw(self, r):
         i0 = r <= 1
         w = np.zeros(r.size)
@@ -127,7 +127,7 @@ class LinearSpline(WeightFunction):
             w[i0] = 1 - r[i0]
             dwdr[i0] = -1.
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r <= 1
         w = np.zeros(r.size)
@@ -143,7 +143,7 @@ class QuadraticSpline(WeightFunction):
     @property
     def form(self):
         return 'quadratic'
-    
+
     def w(self, r):
         i0 = r < 0.5
         i1 = np.logical_xor(r <= 1, i0)
@@ -155,7 +155,7 @@ class QuadraticSpline(WeightFunction):
             r1 = r[i1]
             w[i1] = 2.*r1*r1 - 4.*r1 + 2.
         return w
-    
+
     def dw(self, r):
         i0 = r < 0.5
         i1 = np.logical_xor(r <= 1, i0)
@@ -170,7 +170,7 @@ class QuadraticSpline(WeightFunction):
             w[i1] = 2.*r1*r1 - 4.*r1 + 2.
             dwdr[i1] = 4.*r1 - 4.
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 0.5
         i1 = np.logical_xor(r <= 1, i0)
@@ -193,7 +193,7 @@ class SimpleCubicSpline(WeightFunction):
     @property
     def form(self):
         return 'simpleCubic'
-    
+
     def w(self, r):
         i0 = r <= 1
         w = np.zeros(r.size)
@@ -201,7 +201,7 @@ class SimpleCubicSpline(WeightFunction):
             r1 = r[i0]; r2 = r1*r1; r3 = r2*r1
             w[i0] = 2*r3 - 3*r2 + 1
         return w
-    
+
     def dw(self, r):
         i0 = r <= 1
         w = np.zeros(r.size)
@@ -211,7 +211,7 @@ class SimpleCubicSpline(WeightFunction):
             w[i0] = 2*r3 - 3*r2 + 1
             dwdr[i0] = 6*r2 - 6*r1
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r <= 1
         w = np.zeros(r.size)
@@ -228,7 +228,7 @@ class CubicSpline(WeightFunction):
     @property
     def form(self):
         return 'cubic'
-    
+
     def w(self, r):
         i0 = r < 0.5
         i1 = np.logical_xor(r < 1, i0)
@@ -240,7 +240,7 @@ class CubicSpline(WeightFunction):
             r1 = r[i1]; r2 = r1*r1; r3 = r2*r1
             w[i1] = -2*r3 + 6*r2 - 6*r1 + 2
         return w
-    
+
     def dw(self, r):
         i0 = r < 0.5
         i1 = np.logical_xor(r < 1, i0)
@@ -255,7 +255,7 @@ class CubicSpline(WeightFunction):
             w[i1] = -2*r3 + 6*r2 - 6*r1 + 2
             dwdr[i1] = -6*r2 + 12*r1 - 6
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 0.5
         i1 = np.logical_xor(r < 1, i0)
@@ -286,7 +286,7 @@ class QuarticSpline(WeightFunction):
             r1 = r[i0]; r2 = r1*r1; r3 = r2*r1; r4 = r2*r2
             w[i0] = -3*r4 + 8*r3 - 6*r2 + 1
         return w
-    
+
     def dw(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -296,7 +296,7 @@ class QuarticSpline(WeightFunction):
             w[i0] = -3*r4 + 8*r3 - 6*r2 + 1
             dwdr[i0] =  -12*r3 + 24*r2 - 12*r1
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -329,7 +329,7 @@ class QuinticSpline(WeightFunction):
             r1 = r[i2]; r2 = r1*r1; r3 = r2*r1; r4 = r2*r2; r5 = r3*r2
             w[i2] = -81/22*r5 + 405/22*r4 - 405/11*r3 + 405/11*r2 - 405/22*r1 + 81/22
         return w
-    
+
     def dw(self, r):
         i0 = r < 1/3
         i1 = np.logical_xor(r < 2/3, i0)
@@ -349,7 +349,7 @@ class QuinticSpline(WeightFunction):
             w[i2] = -81/22*r5 + 405/22*r4 - 405/11*r3 + 405/11*r2 - 405/22*r1 + 81/22
             dwdr[i2] = -405/22*r4 + 810/11*r3 - 1215/11*r2 + 810/11*r1 - 405/22
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 1/3
         i1 = np.logical_xor(r < 2/3, i0)
@@ -386,7 +386,7 @@ class SimpleQuinticSpline(WeightFunction):
             r1 = r[i0]; r2 = r1*r1; r3 = r2*r1; r4 = r2*r2; r5 = r3*r2
             w[i0] = -8/3*r5 + 5*r4 - 10/3*r2 + 1
         return w
-    
+
     def dw(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -396,7 +396,7 @@ class SimpleQuinticSpline(WeightFunction):
             w[i0] = -8/3*r5 + 5*r4 - 10/3*r2 + 1
             dwdr[i0] = -40/3*r4 + 20*r3 - 20/3*r1
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -413,7 +413,7 @@ class GenericSpline(WeightFunction):
     @property
     def form(self):
         return 'generic'
-    
+
     def __init__(self, n=1):
         self.n = n
 
@@ -423,7 +423,7 @@ class GenericSpline(WeightFunction):
         if i0.any():
             w[i0] = (1 - r[i0]**2)**self.n
         return w
-    
+
     def dw(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -433,7 +433,7 @@ class GenericSpline(WeightFunction):
             w[i0] = (1 - r2)**self.n
             dwdr[i0] = -2*self.n*r1*(1 - r2)**(self.n-1)
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -449,7 +449,7 @@ class GenericSpline(WeightFunction):
 class Gaussian(WeightFunction):
     c1 = np.exp(-9)
     c2 = 1/(1 - np.exp(-9))
-    
+
     @property
     def form(self):
         return 'gaussian'
@@ -461,7 +461,7 @@ class Gaussian(WeightFunction):
             r2 = r[i0]**2
             w[i0] = (np.exp(-9*r2) - self.c1) / (1 - self.c1)
         return w
-    
+
     def dw(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -471,7 +471,7 @@ class Gaussian(WeightFunction):
             w[i0] = (np.exp(-9*r2) - self.c1) * self.c2
             dwdr[i0] = -18*r1*np.exp(-9*r2) * self.c2
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -483,9 +483,9 @@ class Gaussian(WeightFunction):
             dwdr[i0] = -18*r1*np.exp(-9*r2) * self.c2
             d2wdr2[i0] = 18*np.exp(-9*r2)*(18*r2-1) * self.c2
         return w, dwdr, d2wdr2
-    
+
 class Bump(WeightFunction):
-    
+
     @property
     def form(self):
         return 'bump'
@@ -496,7 +496,7 @@ class Bump(WeightFunction):
         if i0.any():
             w[i0] = np.exp(1 - 1/(1 - r[i0]**2))
         return w
-    
+
     def dw(self, r):
         i0 = r < 1
         w = np.zeros(r.size)
@@ -507,7 +507,7 @@ class Bump(WeightFunction):
             w[i0] = np.exp(tmp + 1)
             dwdr[i0] = w[i0]*(-2*r1)*tmp**2
         return w, dwdr
-    
+
     def d2w(self, r):
         i0 = r < 1
         w = np.zeros(r.size)

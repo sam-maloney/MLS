@@ -3,7 +3,7 @@
 """
 Created on Fri Jan 17 16:25:47 2020
 
-@author: samal
+@author: Samuel A. Maloney
 """
 
 import numpy as np
@@ -45,7 +45,7 @@ kwargs={
 
 precon='ilu'
 tolerance = 1e-10
-    
+
 # Initialize simulation
 mls = ConvectionDiffusionMlsSim(**kwargs)
 mls.computeSpatialDiscretization()
@@ -57,7 +57,7 @@ for i, point in enumerate(points):
     indices, local_phis = mls.phi(point)
     for j, phi in enumerate(local_phis):
         phis[i,mls.periodicIndices[indices[j]]] += phi
-    
+
 # phi_tmp = np.apply_along_axis(lambda p: mls.phi(p)[1], 1, points)
 
 # phis = np.empty((len(points), mls.nNodes), dtype='float64')
@@ -83,31 +83,31 @@ if ndim == 1:
 
     fig.set_size_inches(15,4.5)
     plt.subplots_adjust(hspace = 0.3, wspace = 0.3)
-    
+
     # phisToPlot = [int(N/2)]
     # phisToPlot = range(N)
-    
+
     ##### Use to plot specific functions with derivates #####
     phisToPlot = [N//2]
     # factor = np.sin(2*np.pi*np.arange(0., phis.shape[1])/phis.shape[1])
     # phis = np.sum(factor*phis, axis=1).reshape(-1,1)
     # dphis = np.sum(factor*dphis, axis=1).reshape(-1,1)
     # d2phis = np.sum(factor*d2phis, axis=1).reshape(-1,1)
-    
+
     plt.subplot(1,3,1)
     for i in phisToPlot:
         plt.plot(points, phis[:,i],label=f'$\Phi_{i}$')
         plt.xlabel(r'$x$')
         plt.ylabel(r'$\Phi$', rotation=0)
         plt.legend()
-    
+
     plt.subplot(1,3,2)
     for i in phisToPlot:
         plt.plot(points, dphis[:,i],label=f'$\Phi_{i}$')
         plt.xlabel(r'$x$')
         plt.ylabel(r'$\Phi_x$', rotation=0)
         plt.legend()
-    
+
     plt.subplot(1,3,3)
     for i in phisToPlot:
         plt.plot(points, d2phis[:,i],label=f'$\Phi_{i}$')
@@ -118,7 +118,7 @@ if ndim == 1:
 if ndim == 2:
     fig.set_size_inches(15,13)
     plt.subplots_adjust(hspace = 0.3, wspace = 0.2)
-    
+
     for j in range(N):
         for i in range(N):
             # plot the result

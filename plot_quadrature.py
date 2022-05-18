@@ -3,7 +3,7 @@
 """
 Simple Meshfree method simulation using moving least squares (MLS)
 
-@author: Sam Maloney
+@author: Samuel A. Maloney
 """
 import numpy as np
 import matplotlib as mpl
@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 # def g(points):
 #     k = 1
 #     return np.sin(k*np.pi*points[:,0]) * np.sinh(k*np.pi*points[:,1])
-            
+
 # # mls = MlsSim(10)
 # # mls.assembleStiffnessMatrix()
 
@@ -48,33 +48,33 @@ import matplotlib.pyplot as plt
 # # grid cells along one dimension, each cell forms 2 triangles
 # # therefore number of nodes equals (N+1)*(N+1)
 # for iS, support in enumerate(supports):
-    
+
 #     print('support =', support)
 #     kwargs['support'] = support
-    
+
 #     start_time = default_timer()
-    
+
 #     # allocate arrays and compute boundary values
 #     mlsSim = PoissonMlsSim(N, g, **kwargs)
-    
+
 #     # Assemble the stiffness matrix and solve for the approximate solution
 #     mlsSim.assembleStiffnessMatrix()
 #     mlsSim.solve(tol=tolerance, atol=tolerance, preconditioner=precon)
-    
+
 #     end_time = default_timer()
-    
+
 #     # compute the analytic solution and error norms
 #     u_exact = g(mlsSim.nodes)
 #     # E_inf = np.linalg.norm(mlsSim.u - u_exact, np.inf)
 #     errors[iS] = np.linalg.norm(mlsSim.u - u_exact)/N
-    
+
 #     times[iS] = end_time-start_time
 #     conds[iS] = mlsSim.cond('fro')
 #     fails[iS] = (mlsSim.info != 0)
-    
+
 #     print('Condition Number =', conds[iS])
 #     print(f'Elapsed time = {end_time-start_time} s\n')
-    
+
 # ##### End of loop over supports #####
 
 supports = np.array([1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2. , 2.1, 2.2, 2.3,
@@ -93,7 +93,7 @@ conds_1 = np.array([  4481.0030009 ,   4481.00304233,   4481.00308968,   4481.00
          5232.39978688,   5059.99527773,   5439.43989971])
 fails_1 = np.array([False, False, False, False, False, False, False, False, False,
         False, False, False, False, False, False])
-    
+
 errors_2_u = np.array([1.49785191e-04, 3.89414720e-04, 3.87896198e-04, 2.69326225e-04,
        1.05687630e-04, 1.30866723e-04, 1.20673472e-04, 5.30788320e-05,
        6.75542606e-05, 1.45536791e-04, 1.61696081e-04, 1.46348782e-04,
@@ -135,8 +135,8 @@ conds_3_u = np.array([4481.01118692, 4481.01979124, 4481.05320783, 4481.04827662
        4481.81148479, 4481.29197624, 4481.2509704 ])
 fails_3_u = np.array([False, False, False, False, False, False, False, False, False,
         False, False, False, False, False, False])
-    
-    
+
+
 # ##### Begin Plotting Routines #####
 
 # # clear the current figure, if opened, and set parameters

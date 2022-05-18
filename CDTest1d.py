@@ -3,10 +3,9 @@
 """
 Simple Meshfree method simulation using moving least squares (MLS)
 
-@author: Sam Maloney
+@author: Samuel A. Maloney
 """
 import numpy as np
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 import scipy.linalg as la
@@ -16,7 +15,7 @@ from timeit import default_timer
 
 import warnings
 warnings.filterwarnings("ignore", category=sp.SparseEfficiencyWarning)
-            
+
 def gaussian(points):
     # integral for A=1 and sigma=0.1 is 0.25066268375731304228
     A = 1.0
@@ -78,28 +77,28 @@ for i, dt in enumerate(dt_array):
     kwargs['N'] = N
 
     start_time = default_timer()
-        
+
     # Initialize simulation
     mlsSim = ConvectionDiffusionMlsSim(**kwargs)
     mlsSim.computeSpatialDiscretization()
     mlsSim.precondition(precon)
-    
+
     current_time = default_timer()
     print(f'Set-up time [s]     = {current_time-start_time}')
     # print('Condition Number =', mlsSim.cond('fro'))
-    
+
     start_time = default_timer()
-    
+
     if velocity != 0:
         mlsSim.step(int(1./dt/abs(velocity)), tol=tolerance, atol=tolerance)
     else:
         mlsSim.step(int(1./dt), tol=tolerance, atol=tolerance)
-    
+
     current_time = default_timer()
     print(f'Simulation time [s] = {current_time-start_time}')
-        
+
     mlsSim.solve()
-      
+
     # compute the analytic solution and error norms
     u_exact = kwargs['u0'](mlsSim.uNodes())*np.exp(-D*4.0*np.pi**2*mlsSim.time)
     E_inf[i] = la.norm(mlsSim.u - u_exact, np.inf)
@@ -109,11 +108,11 @@ for i, dt in enumerate(dt_array):
     E_2[i] = la.norm(mlsSim.u - u_exact)/np.sqrt(N)
     print('max error =', E_inf[i])
     print('L2 error  =', E_2[i])
-    
+
 ##### End of loop over dt #####
 
-    
-    
+
+
 ##### Begin Plotting Routines #####
 
 # clear the current figure, if opened, and set parameters

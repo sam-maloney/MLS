@@ -3,7 +3,7 @@
 """
 Created on Fri Jan 17 16:25:47 2020
 
-@author: samal
+@author: Samuel A. Maloney
 """
 
 import numpy as np
@@ -168,7 +168,7 @@ A = np.zeros((mls.nNodes, mls.nNodes), dtype='float64')
 for i, node in enumerate(mls.nodes):
     indices, local_phis = mls.phi(node)
     A[i, indices] += local_phis
-    
+
 u = la.solve(A, func(mls.nodes))
 
 approximate_function = phis@u
@@ -262,7 +262,7 @@ plt.title('dy Error')
 #                        vmin=-np.max(np.abs(difference)),
 #                        vmax=np.max(np.abs(difference)))
 # # ax.axes.set_zlim3d(bottom=-np.max(np.abs(difference)),
-# #                    top=np.max(np.abs(difference))) 
+# #                    top=np.max(np.abs(difference)))
 # plt.colorbar(surf, shrink=0.75, aspect=7)
 # # ax.zaxis.set_ticks([0, 0.001, 0.002, 0.003])
 # plt.xlabel(r'$x$')

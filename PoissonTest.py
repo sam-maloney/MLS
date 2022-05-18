@@ -3,10 +3,9 @@
 """
 Simple Meshfree method simulation using moving least squares (MLS)
 
-@author: Sam Maloney
+@author: Samuel A. Maloney
 """
 import numpy as np
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 
@@ -46,7 +45,7 @@ def quadraticPatch(points, f=False):
 
 g = sinSinh
 f = lambda x: g(x, True)
-            
+
 kwargs={
     'Nquad' : 2,
     'support' : ('rectangular', 1.02),
@@ -77,33 +76,33 @@ start_time = default_timer()
 for iN, N in enumerate(N_array):
 
     print('N =', N)
-    
+
     # allocate arrays and compute boundary values
     mlsSim = PoissonMlsSim(N, g, f, **kwargs)
-    
+
     # Assemble the stiffness matrix and solve for the approximate solution
     mlsSim.assembleStiffnessMatrix(vci=False)
     mlsSim.solve(preconditioner=precon, tol=tolerance, atol=tolerance)
-    
+
     # compute the analytic solution and error norms
     u_exact = g(mlsSim.nodes)
     E_inf[iN] = np.linalg.norm(mlsSim.u - u_exact, np.inf)
     E_2[iN] = np.linalg.norm(mlsSim.u - u_exact)/N
-    
+
     end_time = default_timer()
-    
+
     # print('Condition Number =', mlsSim.cond('fro', False))
-    
+
     print('max error =', E_inf[iN])
     print('L2 error  =', E_2[iN])
     print(f'Elapsed time = {end_time-start_time} s\n')
-    
+
 ##### End of loop over N #####
 
 print(f'min(E_inf) = {np.min(E_inf)}')
 print(f'min(E_2)   = {np.min(E_2)}')
 
-    
+
 ##### Begin Plotting Routines #####
 
 # clear the current figure, if opened, and set parameters

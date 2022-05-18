@@ -3,7 +3,7 @@
 """
 Created on Thu Feb 27 12:24:15 2020
 
-@author: Sam Maloney
+@author: Samuel A. Maloney
 """
 
 import mls
@@ -17,7 +17,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
     """Class for solving convection diffusion equation using meshfree MLS.
     Assumes periodic boundary conditions.
     See MlsSim documentation for general MLS attributes and methods.
-    
+
     Attributes
     ----------
     velocity : np.array([vx,vy,vz], dtype='float64')
@@ -38,7 +38,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         Inidices mapping periodic boundary nodes to their real solution nodes.
     uIndices : numpy.ndarray, dtype='int'
         Indices of the real solution nodes in the full periodic nodes array.
-    
+
     Methods
     -------
     setInitialConditions(self, u0):
@@ -55,14 +55,14 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         Reconstruct the final solution vector, u, from shape functions.
     cond(self, order=2):
         Compute the condition number of the (preconditioned) mass matrix M.
-        
+
     """
-    
+
     def __init__(self, N, dt, u0, velocity, diffusivity,
                  quadrature='gaussian', perturbation=0, seed=None, **kwargs):
         """Initialize attributes of ConvectionDiffusion simulation class
         Extends MlsSim.__init__() constructor
-    
+
         Parameters
         ----------
         N : int
@@ -92,11 +92,11 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         **kwargs
             Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
-        
+
         Returns
         -------
         None.
-    
+
         """
         super().__init__(N, **kwargs)
         self.nNodes = N**self.ndim
@@ -126,7 +126,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         for i in range(self.ndim):
             newInds1 = np.flatnonzero(self.nodes[:,i] < self.support.size)
             newInds2 = np.flatnonzero(self.nodes[:,i] > (1.0 - self.support.size))
-            self.periodicIndices = np.hstack((self.periodicIndices, 
+            self.periodicIndices = np.hstack((self.periodicIndices,
                                               self.periodicIndices[newInds1],
                                               self.periodicIndices[newInds2]))
             self.nodes = np.vstack((self.nodes,
@@ -136,7 +136,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         self.uIndices = np.flatnonzero(newInds < self.nNodes)
         self.periodicIndices = self.periodicIndices[newInds]
         self.setInitialConditions(u0)
-    
+
     def __repr__(self):
         diffusivity_repr = ' '.join(repr(self.diffusivity).split())
         return f"{self.__class__.__name__}({self.N}, {self.dt}, " \
@@ -144,7 +144,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
                f"{diffusivity_repr}, '{self.quadrature}', ndim={self.ndim}, " \
                f"Nquad={self.Nquad}, support={repr(self.support)}, " \
                f"form='{self.form}', basis='{self.basis.name}')"
-    
+
     def setInitialConditions(self, u0):
         """Initialize the shape function coefficients for the given IC.
 
@@ -187,7 +187,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         A = sp.csr_matrix( (data[0:index], indices[0:index], indptr),
                            shape=(self.nNodes, self.nNodes) )
         self.uI = sp_la.spsolve(A, self.u)
-    
+
     def computeSpatialDiscretization(self):
         """Assemble the system discretization matrices K, A, M in CSR format.
         K is the stiffness matrix from the diffusion term
@@ -241,7 +241,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         # self.KA = self.K + self.A
         self.KA = self.A - self.K
         self.P = None
-    
+
     def precondition(self, preconditioner=None, P=None):
         """Generate and/or store the preconditioning matrix P.
 
@@ -279,7 +279,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             print(f"Error: unkown preconditioner '{preconditioner}'. "
                   f"Must be one of 'ilu' or 'jacobi' (or None). "
                   f"Defaulting to None.")
-    
+
     def step(self, nSteps = 1, **kwargs):
         """Advance the simulation a given number of timesteps.
 
@@ -313,7 +313,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
             self.uI = uTemp
             self.timestep += 1
         self.time = self.timestep * self.dt
-    
+
     def uNodes(self):
         """Return the set of solution nodes that excludes periodic repeats.
         Overrides the superclass MlsSim.uNodes() method.
@@ -325,7 +325,7 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
 
         """
         return self.nodes[self.uIndices]
-    
+
     def solve(self):
         """Reconstruct the final solution vector, u, from shape functions.
         Implements the superclass MlsSim.solve() abstract method.
@@ -340,11 +340,11 @@ class ConvectionDiffusionMlsSim(mls.MlsSim):
         for iN, node in enumerate(self.uNodes()):
             indices, phis = self.phi(node)
             self.u[iN] = self.uI[self.periodicIndices[indices]] @ phis
-    
+
     def cond(self, order=2):
         """Compute the condition number of the (preconditioned) mass matrix M.
         Utilizes the superclass MlsSim.cond() method.
-        
+
         Parameters
         ----------
         order : {int, inf, -inf, ‘fro’}, optional

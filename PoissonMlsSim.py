@@ -3,11 +3,11 @@
 """
 Created on Fri Jan 17 16:20:15 2020
 
-@author: Sam Maloney
+@author: Samuel A. Maloney
 """
 
 import mls
-import pyamg
+# import pyamg
 # import scipy
 import numpy as np
 import scipy.linalg as la
@@ -18,7 +18,7 @@ import scipy.sparse.linalg as sp_la
 class PoissonMlsSim(mls.MlsSim):
     """Class for solving Poisson problem using meshfree moving least squares.
     See MlsSim documentation for general MLS attributes and methods.
-    
+
     Attributes
     ----------
     g : function object
@@ -35,21 +35,21 @@ class PoissonMlsSim(mls.MlsSim):
         Numer of nodes NOT on the Dirichlet boundary.
     boundaryValues : numpy.ndarray, dtype='float64'
         Stored values of g() evaluated at the boundary nodes.
-    
+
     Methods
     -------
     selectMethod(self, method, quadrature)
         Register the 'self.assembleStiffnesMatrix' method.
     solve(self, preconditioner=None, **kwargs):
         Solve for the approximate solution using an iterative solver.
-        
+
     """
-   
+
     def __init__(self, N, g, f=lambda x: 0., method='galerkin',
                  quadrature='gaussian', vci='linear',
                  perturbation=0, seed=None, **kwargs):
         """Construct PoissonMlsSim by extending MlsSim constructor
-    
+
         Parameters
         ----------
         N : integer
@@ -82,11 +82,11 @@ class PoissonMlsSim(mls.MlsSim):
         **kwargs
             Keyword arguments to be passed to base MlsSim class constructor.
             See the MlsSim class documentation for details.
-        
+
         Returns
         -------
         None.
-    
+
         """
         super().__init__(N, ndim=2, **kwargs)
         self.nNodes = (N+1)*(N+1)
@@ -107,17 +107,17 @@ class PoissonMlsSim(mls.MlsSim):
         self.g = g
         self.f = f
         self.selectMethod(method, quadrature, vci)
-    
+
     def __repr__(self):
         return f"{self.__class__.__name__}({self.N}, {self.g.__name__}, " \
                f"'{self.method}', '{self.quadrature}', Nquad={self.Nquad}, " \
                f"support={repr(self.support)}, form='{self.form}', " \
                f"basis='{self.basis.name}')"
-    
+
     def selectMethod(self, method='galerkin', quadrature='gaussian',
                      vci='linear'):
         """Register the 'self.assembleStiffnesMatrix' method.
-        
+
         Parameters
         ----------
         method : string, optional
@@ -150,7 +150,7 @@ class PoissonMlsSim(mls.MlsSim):
         else:
             print(f"Error: unkown assembly method '{method}'. "
                   f"Must be one of 'galerkin' or 'collocation'.")
-        
+
     def assembleGalerkinStiffnessMatrixQuadraticVCI(self, vci=True):
         """Assemble the Galerkin system stiffness matrix K in CSR format.
 
@@ -194,7 +194,7 @@ class PoissonMlsSim(mls.MlsSim):
             r[indices,:,1:3] -= np.apply_along_axis(lambda x: np.outer(x[0:2],
                 x[2:4]), 1, np.hstack((gradphis, disps))) * quadWeight
             self.b[indices] += self.f(quad) * phis * quadWeight
-        
+
         for i, row in enumerate(A):
             lu, piv = la.lu_factor(A[i], True, False)
             for j in range(self.ndim):
@@ -232,7 +232,7 @@ class PoissonMlsSim(mls.MlsSim):
         # G *= -1.0
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
         self.b = np.concatenate(( self.b, self.boundaryValues ))
-    
+
     def assembleGalerkinStiffnessMatrixLinearVCI(self, vci=True):
         """Assemble the Galerkin system stiffness matrix K in CSR format.
 
@@ -242,7 +242,7 @@ class PoissonMlsSim(mls.MlsSim):
             Whether to use VCI correction; set to False to disable VCI.
             Only really useful for comparing with uncorrected integration.
             Default is True.
-        
+
         Returns
         -------
         None.
@@ -302,7 +302,7 @@ class PoissonMlsSim(mls.MlsSim):
         # G *= -1.0
         self.K = sp.bmat([[self.K, G], [G.T, None]], format='csr')
         self.b = np.concatenate(( self.b, self.boundaryValues ))
-    
+
     # def assembleGalerkinStiffnessMatrixDirectBC(self):
     #     """Assemble the Galerkin system stiffness matrix K in CSR format.
     #     This code applies BCs directly. It leads to a more ill-conditioned
@@ -343,7 +343,7 @@ class PoissonMlsSim(mls.MlsSim):
     #                             shape=(self.nNodes, self.nNodes) )
     #     self.b = self.f(self.nodes)
     #     self.b[self.isBoundaryNode] = self.boundaryValues
-    
+
     def assembleCollocationStiffnessMatrix(self):
         """Assemble the collocation system stiffness matrix K in CSR format.
 
@@ -377,7 +377,7 @@ class PoissonMlsSim(mls.MlsSim):
                                 shape=(self.nNodes, self.nNodes) )
         self.b = self.f(self.nodes)
         self.b[self.isBoundaryNode] = self.boundaryValues
-    
+
     def precondition(self, preconditioner=None, M=None):
         """Generate and/or store the preconditioning matrix M.
 
@@ -399,9 +399,9 @@ class PoissonMlsSim(mls.MlsSim):
         self.preconditioner = preconditioner
         if preconditioner == None:
             self.M = M
-        elif preconditioner.lower() == 'amg':
-            ml = pyamg.ruge_stuben_solver(self.K)
-            self.M = ml.aspreconditioner()
+        # elif preconditioner.lower() == 'amg':
+        #     ml = pyamg.ruge_stuben_solver(self.K)
+        #     self.M = ml.aspreconditioner()
         elif preconditioner.lower() == 'ilu':
             ilu = sp_la.spilu(self.K)
             Mx = lambda x: ilu.solve(x)
@@ -414,7 +414,7 @@ class PoissonMlsSim(mls.MlsSim):
                 print("Error: 'jacobi' preconditioner not compatible with "
                       "'galerkin' assembly method. Use 'ilu' or None instead."
                       " Defaulting to None.")
-    
+
     def solve(self, preconditioner=None, **kwargs):
         """Solve for the approximate solution using an iterative solver.
 
@@ -445,10 +445,10 @@ class PoissonMlsSim(mls.MlsSim):
         for iN, node in enumerate(self.nodes):
             indices, phis = self.phi(node)
             self.u[iN] = uTmp[indices] @ phis
-            
+
     def cond(self, order=2, preconditioned=True):
         """Computes the condition number of the stiffness matrix K.
-        
+
         Parameters
         ----------
         order : {int, inf, -inf, ‘fro’}, optional

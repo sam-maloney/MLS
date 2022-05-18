@@ -3,10 +3,9 @@
 """
 Simple Meshfree method simulation using moving least squares (MLS)
 
-@author: Sam Maloney
+@author: Samuel A. Maloney
 """
 import numpy as np
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 import scipy.linalg as la
@@ -60,7 +59,7 @@ precon='ilu'
 tolerance = 1e-10
 
 start_time = default_timer()
-    
+
 # Initialize simulation
 mlsSim = ConvectionDiffusionMlsSim(**kwargs)
 mlsSim.computeSpatialDiscretization()
@@ -82,10 +81,10 @@ mlsSim.step(1000, tol=tolerance, atol=tolerance)
 
 current_time = default_timer()
 print(f'Simulation time = {current_time-start_time} s')
-    
+
 # Compute true approximation from nodal coefficients
 mlsSim.solve()
-     
+
 # compute the analytic solution and error norms
 u_exact = kwargs['u0'](mlsSim.uNodes())
 E_inf = la.norm(mlsSim.u - u_exact, np.inf)

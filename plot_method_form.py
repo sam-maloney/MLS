@@ -3,7 +3,7 @@
 """
 Created on Tue Feb 11 10:37:36 2020
 
-@author: samal
+@author: Samuel A. Maloney
 """
 
 import numpy as np
@@ -63,7 +63,7 @@ fails_G_c = np.array([False, False, False, False, False, False, False, False, Fa
 # fails_G_c = np.array([False, False, False, False, False, False, False, False, False,
 #         False, False, False, False, False, False, False,  True,  True,
 #         True,  True,  True,  True,  True,  True,  True])
-    
+
 errors_G_q = np.array([7.66028854e-04, 6.95682925e-04, 5.94489071e-04, 5.19086019e-04,
        5.15959626e-04, 5.73608197e-04, 3.97704227e-04, 2.21269581e-04,
        4.13270367e-04, 7.50718371e-04, 1.25765144e-03, 1.94265792e-03,
@@ -223,7 +223,7 @@ fails_C_q = np.array([ True, False, False, False, False, False, False, False, Fa
 #         True,  True, False, False,  True, False,  True])
 ##### End Old Data #####
 
-    
+
 ##### Begin Plotting Routines #####
 
 # clear the current figure, if opened, and set parameters

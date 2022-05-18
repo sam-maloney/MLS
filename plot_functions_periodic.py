@@ -3,7 +3,7 @@
 """
 Created on Fri Jan 17 16:25:47 2020
 
-@author: samal
+@author: Samuel A. Maloney
 """
 
 import numpy as np
@@ -22,7 +22,7 @@ def gaussian(points):
     y0 = 0.5
     xsigma = 0.15
     ysigma = 0.15
-    return np.exp(-0.5*A*( (points[:,0] - x0)**2/xsigma**2 + 
+    return np.exp(-0.5*A*( (points[:,0] - x0)**2/xsigma**2 +
                            (points[:,1] - y0)**2/ysigma**2 ) )
 
 def hat(points):
@@ -166,7 +166,7 @@ surf = ax.plot_trisurf(points[:,0], points[:,1], difference,
                        vmin=-np.max(np.abs(difference)),
                        vmax=np.max(np.abs(difference)))
 # ax.axes.set_zlim3d(bottom=-np.max(np.abs(difference)),
-#                    top=np.max(np.abs(difference))) 
+#                    top=np.max(np.abs(difference)))
 plt.colorbar(surf, shrink=0.75, aspect=7)
 # plt.colorbar(surf, vmin=-np.max(np.abs(difference)),
              # vmax=np.max(np.abs(difference)))

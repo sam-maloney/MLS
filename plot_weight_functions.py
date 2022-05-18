@@ -2,13 +2,13 @@
 """
 Created on Wed May  6 14:55:08 2020
 
-@author: samal
+@author: Samuel A. Maloney
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from WeightFunction import *
+from weightfunctions import *
 
 # x = np.linspace(0,1,101)
 x = np.linspace(-1,1,201)
