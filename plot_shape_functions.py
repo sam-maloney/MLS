@@ -38,10 +38,10 @@ kwargs={
     'diffusivity' : diffusivity,
     'ndim' : ndim,
     'Nquad' : 4,
-    'support' : 1.5,
+    'support' : 3.2,
     'form' : 'cubic',
     'quadrature' : 'uniform',
-    'basis' : 'quadratic'}
+    'basis' : 'linear'}
 
 precon='ilu'
 tolerance = 1e-10

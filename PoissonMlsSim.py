@@ -1,14 +1,12 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Jan 17 16:20:15 2020
 
 @author: Samuel A. Maloney
+
 """
 
 import mls
-# import pyamg
-# import scipy
 import numpy as np
 import scipy.linalg as la
 import scipy.sparse as sp
@@ -399,9 +397,6 @@ class PoissonMlsSim(mls.MlsSim):
         self.preconditioner = preconditioner
         if preconditioner == None:
             self.M = M
-        # elif preconditioner.lower() == 'amg':
-        #     ml = pyamg.ruge_stuben_solver(self.K)
-        #     self.M = ml.aspreconditioner()
         elif preconditioner.lower() == 'ilu':
             ilu = sp_la.spilu(self.K)
             Mx = lambda x: ilu.solve(x)

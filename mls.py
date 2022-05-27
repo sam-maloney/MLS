@@ -1,27 +1,8 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Fri Jan 17 16:20:15 2020
 
-@author: Sam Maloney
-
-Classes
--------
-Support : metaclass=ABCMeta
-
-CircularSupport : Support
-
-RectangularSupport : Support
-
-
-Basis : metaclass=ABCMeta
-
-LinearBasis : Basis
-
-QuadraticBasis : Basis
-
-
-MlsSim : metaclass=ABCMeta
+@author: Samuel A. Maloney
 
 """
 
@@ -36,8 +17,6 @@ import bases
 import weightfunctions
 
 from abc import ABCMeta, abstractmethod
-
-# from WeightFunction import *
 
 
 class MlsSim(metaclass=ABCMeta):
